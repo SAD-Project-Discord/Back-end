@@ -1,4 +1,5 @@
 from .base import *  # noqa: F403
+from .database import get_postgres_database
 
 DEBUG = True
 
@@ -14,12 +15,20 @@ if not CORS_ALLOWED_ORIGINS:  # noqa: F405
         "http://127.0.0.1:3000",
     ]
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",  # noqa: F405
+if os.getenv("DATABASE_URL") or os.getenv("DB_HOST"):  # noqa: F405
+    DATABASES = {
+        "default": get_postgres_database(
+            default_sslmode="prefer",
+            default_conn_max_age=0,
+        )
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",  # noqa: F405
+        }
+    }
 
 REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"] = [  # noqa: F405
     "rest_framework.renderers.JSONRenderer",
