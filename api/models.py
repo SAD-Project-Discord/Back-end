@@ -2,6 +2,7 @@ import secrets
 
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -69,4 +70,42 @@ class User(AbstractBaseUser, PermissionsMixin):
         while True:
             public_id = f"usr_{secrets.token_hex(6)}"
             if not User.objects.filter(public_id=public_id).exists():
+                return public_id
+
+
+class AuthSession(models.Model):
+    public_id = models.CharField(max_length=32, unique=True, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="auth_sessions")
+    refresh_jti = models.CharField(max_length=255, unique=True)
+    device = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "auth_sessions"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.public_id} ({self.user.email})"
+
+    @property
+    def is_active(self):
+        return self.revoked_at is None and self.expires_at > timezone.now()
+
+    def revoke(self):
+        if self.revoked_at is None:
+            self.revoked_at = timezone.now()
+            self.save(update_fields=["revoked_at"])
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"ses_{secrets.token_hex(6)}"
+            if not AuthSession.objects.filter(public_id=public_id).exists():
                 return public_id

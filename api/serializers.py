@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from api.models import User
+from api.models import AuthSession, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -45,3 +45,15 @@ class RegisterSerializer(serializers.ModelSerializer):
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
+
+
+class RefreshTokenSerializer(serializers.Serializer):
+    refresh_token = serializers.CharField()
+
+
+class AuthSessionSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="public_id", read_only=True)
+
+    class Meta:
+        model = AuthSession
+        fields = ["id", "created_at", "expires_at", "device"]

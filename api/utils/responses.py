@@ -11,3 +11,7 @@ def error_response(code, message, status_code=status.HTTP_400_BAD_REQUEST, detai
     if details is not None:
         error["details"] = details
     return Response({"success": False, "error": error}, status=status_code)
+
+
+def no_content_response():
+    return Response(status=status.HTTP_204_NO_CONTENT)

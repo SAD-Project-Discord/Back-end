@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from api.models import User
+from api.models import AuthSession, User
 
 
 @admin.register(User)
@@ -27,3 +27,11 @@ class UserAdmin(BaseUserAdmin):
             },
         ),
     )
+
+
+@admin.register(AuthSession)
+class AuthSessionAdmin(admin.ModelAdmin):
+    list_display = ("public_id", "user", "device", "created_at", "expires_at", "revoked_at")
+    search_fields = ("public_id", "user__email", "user__username", "device")
+    readonly_fields = ("public_id", "refresh_jti", "created_at")
+    list_filter = ("revoked_at",)
