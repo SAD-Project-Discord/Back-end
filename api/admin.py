@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 
-from api.models import AuthSession, User
+from api.models import AuthSession, Message, User
 
 
 @admin.register(User)
@@ -35,3 +35,11 @@ class AuthSessionAdmin(admin.ModelAdmin):
     search_fields = ("public_id", "user__email", "user__username", "device")
     readonly_fields = ("public_id", "refresh_jti", "created_at")
     list_filter = ("revoked_at",)
+
+
+@admin.register(Message)
+class MessageAdmin(admin.ModelAdmin):
+    list_display = ("public_id", "user", "channel_id", "pinned", "deleted_at", "created_at")
+    search_fields = ("public_id", "content", "channel_id", "user__email", "user__username")
+    readonly_fields = ("public_id", "created_at", "updated_at")
+    list_filter = ("pinned", "deleted_at")

@@ -109,3 +109,54 @@ class AuthSession(models.Model):
             public_id = f"ses_{secrets.token_hex(6)}"
             if not AuthSession.objects.filter(public_id=public_id).exists():
                 return public_id
+
+
+class MessageQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(deleted_at__isnull=True)
+
+
+class MessageManager(models.Manager.from_queryset(MessageQuerySet)):
+    pass
+
+
+class Message(models.Model):
+    public_id = models.CharField(max_length=32, unique=True, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="messages")
+    channel_id = models.CharField(max_length=32, db_index=True)
+    content = models.TextField()
+    file_url = models.URLField(blank=True, default="")
+    pinned = models.BooleanField(default=False)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = MessageManager()
+
+    class Meta:
+        db_table = "messages"
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.public_id} in {self.channel_id}"
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
+
+    def soft_delete(self):
+        if self.deleted_at is None:
+            self.deleted_at = timezone.now()
+            self.save(update_fields=["deleted_at", "updated_at"])
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"msg_{secrets.token_hex(6)}"
+            if not Message.objects.filter(public_id=public_id).exists():
+                return public_id
