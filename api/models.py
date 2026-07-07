@@ -115,17 +115,66 @@ class MessageQuerySet(models.QuerySet):
     def active(self):
         return self.filter(deleted_at__isnull=True)
 
+    def for_direct(self, user_a, user_b):
+        return self.active().filter(
+            message_type=Message.MessageType.DIRECT,
+        ).filter(
+            models.Q(user=user_a, receiver=user_b) | models.Q(user=user_b, receiver=user_a)
+        )
+
+    def for_group(self, group_id):
+        return self.active().filter(message_type=Message.MessageType.GROUP, group_id=group_id)
+
+    def for_channel(self, channel_id, topic_id=None):
+        queryset = self.active().filter(
+            message_type=Message.MessageType.CHANNEL,
+            channel_id=channel_id,
+        )
+        if topic_id:
+            queryset = queryset.filter(topic_id=topic_id)
+        return queryset
+
 
 class MessageManager(models.Manager.from_queryset(MessageQuerySet)):
     pass
 
 
 class Message(models.Model):
+    class MessageType(models.TextChoices):
+        DIRECT = "direct", "Direct"
+        GROUP = "group", "Group"
+        CHANNEL = "channel", "Channel"
+
     public_id = models.CharField(max_length=32, unique=True, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="messages")
-    channel_id = models.CharField(max_length=32, db_index=True)
+    message_type = models.CharField(
+        max_length=16,
+        choices=MessageType.choices,
+        db_index=True,
+        default=MessageType.CHANNEL,
+    )
+    receiver = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="received_messages",
+        null=True,
+        blank=True,
+    )
+    group_id = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    channel_id = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    topic_id = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    reply_to = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        related_name="replies",
+        null=True,
+        blank=True,
+    )
     content = models.TextField()
     file_url = models.URLField(blank=True, default="")
+    media = models.JSONField(default=list, blank=True)
+    reactions = models.JSONField(default=list, blank=True)
+    is_edited = models.BooleanField(default=False)
     pinned = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -136,9 +185,13 @@ class Message(models.Model):
     class Meta:
         db_table = "messages"
         ordering = ["created_at"]
+        indexes = [
+            models.Index(fields=["message_type", "group_id", "created_at"]),
+            models.Index(fields=["message_type", "channel_id", "topic_id", "created_at"]),
+        ]
 
     def __str__(self):
-        return f"{self.public_id} in {self.channel_id}"
+        return f"{self.public_id} ({self.message_type})"
 
     @property
     def is_deleted(self):
@@ -148,6 +201,15 @@ class Message(models.Model):
         if self.deleted_at is None:
             self.deleted_at = timezone.now()
             self.save(update_fields=["deleted_at", "updated_at"])
+
+    def get_room_name(self):
+        from api.constants import channel_room_name, direct_room_name, group_room_name
+
+        if self.message_type == self.MessageType.DIRECT:
+            return direct_room_name(self.user.public_id, self.receiver.public_id)
+        if self.message_type == self.MessageType.GROUP:
+            return group_room_name(self.group_id)
+        return channel_room_name(self.channel_id, self.topic_id or None)
 
     def save(self, *args, **kwargs):
         if not self.public_id:

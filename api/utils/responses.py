@@ -2,8 +2,11 @@ from rest_framework.response import Response
 from rest_framework import status
 
 
-def success_response(data, status_code=status.HTTP_200_OK):
-    return Response({"success": True, "data": data}, status=status_code)
+def success_response(data, status_code=status.HTTP_200_OK, meta=None):
+    body = {"success": True, "data": data}
+    if meta is not None:
+        body["meta"] = meta
+    return Response(body, status=status_code)
 
 
 def error_response(code, message, status_code=status.HTTP_400_BAD_REQUEST, details=None):

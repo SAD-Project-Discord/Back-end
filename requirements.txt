@@ -1,4 +1,7 @@
 asgiref==3.11.1
+celery[redis]==5.4.0
+channels[daphne]==4.2.2
+channels-redis==4.2.1
 Django==6.0.6
 django-cors-headers==4.9.0
 djangorestframework==3.17.1
@@ -6,4 +9,5 @@ djangorestframework-simplejwt==5.5.0
 gunicorn==23.0.0
 psycopg[binary]==3.3.3
 python-dotenv==1.2.2
+redis==5.2.1
 sqlparse==0.5.5

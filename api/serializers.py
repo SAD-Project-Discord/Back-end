@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from api.models import AuthSession, User
+from api.models import AuthSession, Message, User
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -57,3 +57,46 @@ class AuthSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = AuthSession
         fields = ["id", "created_at", "expires_at", "device"]
+
+
+def message_to_dict(message):
+    return {
+        "id": message.public_id,
+        "sender_id": message.user.public_id,
+        "receiver_id": message.receiver.public_id if message.receiver else None,
+        "group_id": message.group_id or None,
+        "channel_id": message.channel_id or None,
+        "topic_id": message.topic_id or None,
+        "content": message.content,
+        "reply_to_id": message.reply_to.public_id if message.reply_to else None,
+        "is_edited": message.is_edited,
+        "is_deleted": message.is_deleted,
+        "media": message.media or [],
+        "reactions": message.reactions or [],
+        "created_at": message.created_at.isoformat().replace("+00:00", "Z"),
+        "updated_at": message.updated_at.isoformat().replace("+00:00", "Z"),
+    }
+
+
+class MessageSerializer(serializers.Serializer):
+    def to_representation(self, instance):
+        return message_to_dict(instance)
+
+
+class SendMessageSerializer(serializers.Serializer):
+    receiver_id = serializers.CharField(required=False, allow_blank=True)
+    group_id = serializers.CharField(required=False, allow_blank=True)
+    channel_id = serializers.CharField(required=False, allow_blank=True)
+    topic_id = serializers.CharField(required=False, allow_blank=True)
+    content = serializers.CharField(required=False, allow_blank=True)
+    reply_to_id = serializers.CharField(required=False, allow_blank=True)
+    file_url = serializers.URLField(required=False, allow_blank=True)
+    media_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=True,
+    )
+
+
+class EditMessageSerializer(serializers.Serializer):
+    content = serializers.CharField()

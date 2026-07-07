@@ -39,7 +39,16 @@ class AuthSessionAdmin(admin.ModelAdmin):
 
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
-    list_display = ("public_id", "user", "channel_id", "pinned", "deleted_at", "created_at")
-    search_fields = ("public_id", "content", "channel_id", "user__email", "user__username")
+    list_display = (
+        "public_id",
+        "user",
+        "message_type",
+        "channel_id",
+        "group_id",
+        "is_edited",
+        "deleted_at",
+        "created_at",
+    )
+    search_fields = ("public_id", "content", "channel_id", "group_id", "user__email", "user__username")
     readonly_fields = ("public_id", "created_at", "updated_at")
-    list_filter = ("pinned", "deleted_at")
+    list_filter = ("message_type", "pinned", "deleted_at", "is_edited")
