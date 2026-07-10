@@ -100,3 +100,61 @@ class SendMessageSerializer(serializers.Serializer):
 
 class EditMessageSerializer(serializers.Serializer):
     content = serializers.CharField()
+
+
+class PublicUserProfileSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="public_id", read_only=True)
+    avatar_url = serializers.URLField(
+        source="profile_picture",
+        read_only=True,
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "name",
+            "bio",
+            "avatar_url",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class UpdateUserProfileSerializer(serializers.ModelSerializer):
+    avatar_url = serializers.URLField(
+        source="profile_picture",
+        required=False,
+        allow_blank=True,
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            "username",
+            "name",
+            "bio",
+            "avatar_url",
+        ]
+        extra_kwargs = {
+            "username": {"required": False},
+            "name": {"required": False},
+            "bio": {
+                "required": False,
+                "allow_blank": True,
+            },
+        }
+
+    def validate_username(self, value):
+        users = User.objects.filter(username__iexact=value)
+
+        if self.instance is not None:
+            users = users.exclude(pk=self.instance.pk)
+
+        if users.exists():
+            raise serializers.ValidationError(
+                "این نام کاربری قبلاً استفاده شده است."
+            )
+
+        return value
