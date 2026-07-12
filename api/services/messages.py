@@ -117,14 +117,39 @@ def get_message(public_id):
 
 def update_message(message, editor, content):
     if message.user_id != editor.id:
-        raise MessageServiceError("FORBIDDEN", "شما اجازه ویرایش این پیام را ندارید.", 403)
+        raise MessageServiceError(
+            "FORBIDDEN",
+            "شما اجازه ویرایش این پیام را ندارید.",
+            403,
+        )
 
-    message.content = content.strip()
+    normalized_content = content.strip()
+
+    if not normalized_content:
+        raise MessageServiceError(
+            "VALIDATION_ERROR",
+            "متن پیام نمی‌تواند خالی باشد.",
+            400,
+        )
+
+    message.content = normalized_content
     message.is_edited = True
-    message.save(update_fields=["content", "is_edited", "updated_at"])
+    message.save(
+        update_fields=[
+            "content",
+            "is_edited",
+            "updated_at",
+        ]
+    )
 
     payload = message_to_dict(message)
-    broadcast_message_event_task.delay("message.updated", message.get_room_name(), payload)
+
+    broadcast_message_event_task.delay(
+        "message.updated",
+        message.get_room_name(),
+        payload,
+    )
+
     return message
 
 
