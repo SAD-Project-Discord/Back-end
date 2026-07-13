@@ -1,7 +1,13 @@
 from rest_framework import serializers
 
-from api.models import AuthSession, Message, User
-
+from api.models import (
+    AuthSession,
+    Group,
+    GroupInvitation,
+    GroupMembership,
+    Message,
+    User,
+)
 
 class UserSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="public_id", read_only=True)
@@ -158,3 +164,124 @@ class UpdateUserProfileSerializer(serializers.ModelSerializer):
             )
 
         return value
+
+
+class CreateGroupSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=100,
+        trim_whitespace=True,
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+    )
+
+
+class GroupMembershipSerializer(serializers.ModelSerializer):
+    user_id = serializers.CharField(
+        source="user.public_id",
+        read_only=True,
+    )
+    username = serializers.CharField(
+        source="user.username",
+        read_only=True,
+    )
+    name = serializers.CharField(
+        source="user.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = GroupMembership
+        fields = [
+            "user_id",
+            "username",
+            "name",
+            "role",
+            "joined_at",
+        ]
+
+
+class GroupSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(
+        source="public_id",
+        read_only=True,
+    )
+    creator_id = serializers.CharField(
+        source="creator.public_id",
+        read_only=True,
+    )
+    members = GroupMembershipSerializer(
+        source="memberships",
+        many=True,
+        read_only=True,
+    )
+    member_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Group
+        fields = [
+            "id",
+            "name",
+            "description",
+            "creator_id",
+            "member_count",
+            "members",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_member_count(self, obj):
+        return obj.memberships.count()
+
+
+class CreateGroupInvitationSerializer(serializers.Serializer):
+    invitee_id = serializers.CharField()
+
+
+class GroupInvitationSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(
+        source="public_id",
+        read_only=True,
+    )
+    group_id = serializers.CharField(
+        source="group.public_id",
+        read_only=True,
+    )
+    group_name = serializers.CharField(
+        source="group.name",
+        read_only=True,
+    )
+    inviter_id = serializers.CharField(
+        source="inviter.public_id",
+        read_only=True,
+    )
+    inviter_username = serializers.CharField(
+        source="inviter.username",
+        read_only=True,
+    )
+    invitee_id = serializers.CharField(
+        source="invitee.public_id",
+        read_only=True,
+    )
+
+    class Meta:
+        model = GroupInvitation
+        fields = [
+            "id",
+            "group_id",
+            "group_name",
+            "inviter_id",
+            "inviter_username",
+            "invitee_id",
+            "status",
+            "created_at",
+            "responded_at",
+        ]
+
+
+class RespondGroupInvitationSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(
+        choices=["accept", "reject"],
+    )
