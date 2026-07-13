@@ -4,7 +4,13 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from api.models import Message, User
+from api.models import (
+    Group,
+    GroupInvitation,
+    GroupMembership,
+    Message,
+    User,
+)
 
 
 class UserProfileTests(APITestCase):
@@ -672,6 +678,395 @@ class PrivateChatTests(APITestCase):
                     "user_id": self.user_b.public_id,
                 },
             )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+
+class GroupCreationInvitationTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="owner@example.com",
+            username="group_owner",
+            name="Group Owner",
+            password="StrongPassword123",
+        )
+
+        self.invitee = User.objects.create_user(
+            email="invitee@example.com",
+            username="group_invitee",
+            name="Group Invitee",
+            password="StrongPassword123",
+        )
+
+        self.other_user = User.objects.create_user(
+            email="other-group@example.com",
+            username="group_other",
+            name="Other User",
+            password="StrongPassword123",
+        )
+
+    def create_group(self):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.post(
+            reverse("groups"),
+            {
+                "name": "Backend Team",
+                "description": "Project backend group",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        return Group.objects.get(
+            public_id=response.data["data"]["id"]
+        )
+
+    def create_invitation(self, group):
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.post(
+            reverse(
+                "group-invitation-create",
+                kwargs={
+                    "group_id": group.public_id,
+                },
+            ),
+            {
+                "invitee_id": self.invitee.public_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        return GroupInvitation.objects.get(
+            public_id=response.data["data"]["id"]
+        )
+
+    def test_authenticated_user_can_create_group(self):
+        group = self.create_group()
+
+        self.assertEqual(
+            group.name,
+            "Backend Team",
+        )
+        self.assertEqual(
+            group.creator,
+            self.owner,
+        )
+
+        membership = GroupMembership.objects.get(
+            group=group,
+            user=self.owner,
+        )
+
+        self.assertEqual(
+            membership.role,
+            GroupMembership.Role.OWNER,
+        )
+
+    def test_group_creator_is_visible_in_group_list(self):
+        group = self.create_group()
+
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.get(
+            reverse("groups")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        group_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertIn(
+            group.public_id,
+            group_ids,
+        )
+
+    def test_owner_can_invite_user(self):
+        group = self.create_group()
+        invitation = self.create_invitation(group)
+
+        self.assertEqual(
+            invitation.group,
+            group,
+        )
+        self.assertEqual(
+            invitation.inviter,
+            self.owner,
+        )
+        self.assertEqual(
+            invitation.invitee,
+            self.invitee,
+        )
+        self.assertEqual(
+            invitation.status,
+            GroupInvitation.Status.PENDING,
+        )
+
+    def test_regular_user_cannot_invite_to_group(self):
+        group = self.create_group()
+
+        GroupMembership.objects.create(
+            group=group,
+            user=self.other_user,
+            role=GroupMembership.Role.MEMBER,
+        )
+
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "group-invitation-create",
+                kwargs={
+                    "group_id": group.public_id,
+                },
+            ),
+            {
+                "invitee_id": self.invitee.public_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "FORBIDDEN",
+        )
+
+    def test_duplicate_pending_invitation_is_rejected(self):
+        group = self.create_group()
+        self.create_invitation(group)
+
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.post(
+            reverse(
+                "group-invitation-create",
+                kwargs={
+                    "group_id": group.public_id,
+                },
+            ),
+            {
+                "invitee_id": self.invitee.public_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_409_CONFLICT,
+        )
+
+        self.assertEqual(
+            GroupInvitation.objects.filter(
+                group=group,
+                invitee=self.invitee,
+                status=GroupInvitation.Status.PENDING,
+            ).count(),
+            1,
+        )
+
+    def test_invitee_can_view_received_invitation(self):
+        group = self.create_group()
+        invitation = self.create_invitation(group)
+
+        self.client.force_authenticate(
+            user=self.invitee
+        )
+
+        response = self.client.get(
+            reverse("group-invitations")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        invitation_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertIn(
+            invitation.public_id,
+            invitation_ids,
+        )
+
+    def test_invitee_can_accept_invitation(self):
+        group = self.create_group()
+        invitation = self.create_invitation(group)
+
+        self.client.force_authenticate(
+            user=self.invitee
+        )
+
+        response = self.client.post(
+            reverse(
+                "group-invitation-respond",
+                kwargs={
+                    "invitation_id": invitation.public_id,
+                },
+            ),
+            {
+                "action": "accept",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        invitation.refresh_from_db()
+
+        self.assertEqual(
+            invitation.status,
+            GroupInvitation.Status.ACCEPTED,
+        )
+        self.assertIsNotNone(
+            invitation.responded_at
+        )
+
+        membership = GroupMembership.objects.get(
+            group=group,
+            user=self.invitee,
+        )
+
+        self.assertEqual(
+            membership.role,
+            GroupMembership.Role.MEMBER,
+        )
+
+    def test_invitee_can_reject_invitation(self):
+        group = self.create_group()
+        invitation = self.create_invitation(group)
+
+        self.client.force_authenticate(
+            user=self.invitee
+        )
+
+        response = self.client.post(
+            reverse(
+                "group-invitation-respond",
+                kwargs={
+                    "invitation_id": invitation.public_id,
+                },
+            ),
+            {
+                "action": "reject",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        invitation.refresh_from_db()
+
+        self.assertEqual(
+            invitation.status,
+            GroupInvitation.Status.REJECTED,
+        )
+
+        self.assertFalse(
+            GroupMembership.objects.filter(
+                group=group,
+                user=self.invitee,
+            ).exists()
+        )
+
+    def test_another_user_cannot_respond_to_invitation(self):
+        group = self.create_group()
+        invitation = self.create_invitation(group)
+
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.post(
+            reverse(
+                "group-invitation-respond",
+                kwargs={
+                    "invitation_id": invitation.public_id,
+                },
+            ),
+            {
+                "action": "accept",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        invitation.refresh_from_db()
+
+        self.assertEqual(
+            invitation.status,
+            GroupInvitation.Status.PENDING,
+        )
+
+    def test_non_member_cannot_view_group_detail(self):
+        group = self.create_group()
+
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.get(
+            reverse(
+                "group-detail",
+                kwargs={
+                    "group_id": group.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_unauthenticated_user_cannot_create_group(self):
+        self.client.force_authenticate(user=None)
+
+        response = self.client.post(
+            reverse("groups"),
+            {
+                "name": "Unauthorized Group",
+            },
+            format="json",
         )
 
         self.assertEqual(

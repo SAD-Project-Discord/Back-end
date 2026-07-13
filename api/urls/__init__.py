@@ -7,4 +7,5 @@ urlpatterns = [
     path("auth/", include("api.urls.auth")),
     path("messages/", include("api.urls.messages")),
     path("users/", include("api.urls.users")),
+    path("groups/", include("api.urls.groups")),
 ]
