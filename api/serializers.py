@@ -285,3 +285,24 @@ class RespondGroupInvitationSerializer(serializers.Serializer):
     action = serializers.ChoiceField(
         choices=["accept", "reject"],
     )
+
+
+class UpdateGroupSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        required=False,
+        max_length=100,
+        trim_whitespace=True,
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+    )
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError(
+                "حداقل یکی از فیلدهای name یا description الزامی است."
+            )
+
+        return attrs
