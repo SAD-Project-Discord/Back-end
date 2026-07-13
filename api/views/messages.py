@@ -98,7 +98,10 @@ def search_message_list(request):
 @permission_classes([IsAuthenticated])
 def message_detail(request, message_id):
     try:
-        message = get_message(message_id)
+        message = get_message(
+            message_id,
+            request.user,
+        )
     except MessageServiceError as exc:
         return _handle_service_error(exc)
 

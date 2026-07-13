@@ -398,3 +398,283 @@ class MessageEditDeleteTests(APITestCase):
             response.status_code,
             status.HTTP_401_UNAUTHORIZED,
         )
+
+
+class PrivateChatTests(APITestCase):
+    def setUp(self):
+        self.user_a = User.objects.create_user(
+            email="user-a@example.com",
+            username="user_a",
+            name="User A",
+            password="StrongPassword123",
+        )
+
+        self.user_b = User.objects.create_user(
+            email="user-b@example.com",
+            username="user_b",
+            name="User B",
+            password="StrongPassword123",
+        )
+
+        self.user_c = User.objects.create_user(
+            email="user-c@example.com",
+            username="user_c",
+            name="User C",
+            password="StrongPassword123",
+        )
+
+        self.broadcast_patcher = patch(
+            "api.services.messages."
+            "broadcast_message_event_task.delay"
+        )
+        self.mock_broadcast = self.broadcast_patcher.start()
+        self.addCleanup(self.broadcast_patcher.stop)
+
+    def test_user_can_send_direct_message(self):
+        self.client.force_authenticate(user=self.user_a)
+
+        response = self.client.post(
+            reverse("messages"),
+            {
+                "receiver_id": self.user_b.public_id,
+                "content": "Hello User B",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        message = Message.objects.get(
+            public_id=response.data["data"]["id"]
+        )
+
+        self.assertEqual(
+            message.message_type,
+            Message.MessageType.DIRECT,
+        )
+        self.assertEqual(message.user, self.user_a)
+        self.assertEqual(message.receiver, self.user_b)
+        self.assertEqual(message.content, "Hello User B")
+
+    def test_direct_history_contains_both_directions(self):
+        message_a = Message.objects.create(
+            user=self.user_a,
+            receiver=self.user_b,
+            message_type=Message.MessageType.DIRECT,
+            content="Message from A",
+        )
+
+        message_b = Message.objects.create(
+            user=self.user_b,
+            receiver=self.user_a,
+            message_type=Message.MessageType.DIRECT,
+            content="Message from B",
+        )
+
+        unrelated_message = Message.objects.create(
+            user=self.user_a,
+            receiver=self.user_c,
+            message_type=Message.MessageType.DIRECT,
+            content="Message for C",
+        )
+
+        self.client.force_authenticate(user=self.user_a)
+
+        response = self.client.get(
+            reverse(
+                "messages-direct",
+                kwargs={
+                    "user_id": self.user_b.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        message_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertIn(
+            message_a.public_id,
+            message_ids,
+        )
+        self.assertIn(
+            message_b.public_id,
+            message_ids,
+        )
+        self.assertNotIn(
+            unrelated_message.public_id,
+            message_ids,
+        )
+
+    def test_sender_can_view_direct_message_detail(self):
+        message = Message.objects.create(
+            user=self.user_a,
+            receiver=self.user_b,
+            message_type=Message.MessageType.DIRECT,
+            content="Private message",
+        )
+
+        self.client.force_authenticate(user=self.user_a)
+
+        response = self.client.get(
+            reverse(
+                "message-detail",
+                kwargs={
+                    "message_id": message.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+    def test_receiver_can_view_direct_message_detail(self):
+        message = Message.objects.create(
+            user=self.user_a,
+            receiver=self.user_b,
+            message_type=Message.MessageType.DIRECT,
+            content="Private message",
+        )
+
+        self.client.force_authenticate(user=self.user_b)
+
+        response = self.client.get(
+            reverse(
+                "message-detail",
+                kwargs={
+                    "message_id": message.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+    def test_third_user_cannot_view_direct_message_detail(self):
+        message = Message.objects.create(
+            user=self.user_a,
+            receiver=self.user_b,
+            message_type=Message.MessageType.DIRECT,
+            content="Private message",
+        )
+
+        self.client.force_authenticate(user=self.user_c)
+
+        response = self.client.get(
+            reverse(
+                "message-detail",
+                kwargs={
+                    "message_id": message.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "FORBIDDEN",
+        )
+
+    def test_user_cannot_send_direct_message_to_self(self):
+        self.client.force_authenticate(user=self.user_a)
+
+        response = self.client.post(
+            reverse("messages"),
+            {
+                "receiver_id": self.user_a.public_id,
+                "content": "Message to myself",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(
+            Message.objects.filter(
+                message_type=Message.MessageType.DIRECT,
+                user=self.user_a,
+                receiver=self.user_a,
+            ).count(),
+            0,
+        )
+
+    def test_deleted_message_is_not_in_direct_history(self):
+        deleted_message = Message.objects.create(
+            user=self.user_a,
+            receiver=self.user_b,
+            message_type=Message.MessageType.DIRECT,
+            content="Deleted message",
+        )
+        deleted_message.soft_delete()
+
+        active_message = Message.objects.create(
+            user=self.user_b,
+            receiver=self.user_a,
+            message_type=Message.MessageType.DIRECT,
+            content="Active message",
+        )
+
+        self.client.force_authenticate(user=self.user_a)
+
+        response = self.client.get(
+            reverse(
+                "messages-direct",
+                kwargs={
+                    "user_id": self.user_b.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        message_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertNotIn(
+            deleted_message.public_id,
+            message_ids,
+        )
+        self.assertIn(
+            active_message.public_id,
+            message_ids,
+        )
+
+    def test_unauthenticated_user_cannot_view_direct_history(self):
+        response = self.client.get(
+            reverse(
+                "messages-direct",
+                kwargs={
+                    "user_id": self.user_b.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
