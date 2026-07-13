@@ -8,17 +8,24 @@ from api.serializers import (
     GroupInvitationSerializer,
     GroupSerializer,
     RespondGroupInvitationSerializer,
+    UpdateGroupSerializer,
 )
 from api.services.groups import (
     GroupServiceError,
     create_group,
     create_group_invitation,
+    delete_group,
     get_group,
     list_received_invitations,
     list_user_groups,
     respond_to_group_invitation,
+    update_group,
 )
-from api.utils.responses import error_response, success_response
+from api.utils.responses import (
+    error_response,
+    no_content_response,
+    success_response,
+)
 
 
 def _handle_service_error(exc):
@@ -65,20 +72,57 @@ def group_list_create(request):
     )
 
 
-@api_view(["GET"])
+@api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def group_detail(request, group_id):
+    if request.method == "GET":
+        try:
+            group = get_group(
+                group_id,
+                request.user,
+            )
+        except GroupServiceError as exc:
+            return _handle_service_error(exc)
+
+        return success_response(
+            GroupSerializer(group).data
+        )
+
+    if request.method == "PATCH":
+        serializer = UpdateGroupSerializer(
+            data=request.data
+        )
+
+        if not serializer.is_valid():
+            return error_response(
+                "VALIDATION_ERROR",
+                "اطلاعات ارسالی نامعتبر است.",
+                status.HTTP_400_BAD_REQUEST,
+                serializer.errors,
+            )
+
+        try:
+            group = update_group(
+                group_id,
+                request.user,
+                serializer.validated_data,
+            )
+        except GroupServiceError as exc:
+            return _handle_service_error(exc)
+
+        return success_response(
+            GroupSerializer(group).data
+        )
+
     try:
-        group = get_group(
+        delete_group(
             group_id,
             request.user,
         )
     except GroupServiceError as exc:
         return _handle_service_error(exc)
 
-    return success_response(
-        GroupSerializer(group).data
-    )
+    return no_content_response()
 
 
 @api_view(["POST"])

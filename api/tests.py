@@ -1073,3 +1073,341 @@ class GroupCreationInvitationTests(APITestCase):
             response.status_code,
             status.HTTP_401_UNAUTHORIZED,
         )
+
+
+class GroupEditDeleteTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="edit-owner@example.com",
+            username="edit_group_owner",
+            name="Edit Group Owner",
+            password="StrongPassword123",
+        )
+
+        self.admin = User.objects.create_user(
+            email="edit-admin@example.com",
+            username="edit_group_admin",
+            name="Edit Group Admin",
+            password="StrongPassword123",
+        )
+
+        self.member = User.objects.create_user(
+            email="edit-member@example.com",
+            username="edit_group_member",
+            name="Edit Group Member",
+            password="StrongPassword123",
+        )
+
+        self.outsider = User.objects.create_user(
+            email="edit-outsider@example.com",
+            username="edit_group_outsider",
+            name="Edit Group Outsider",
+            password="StrongPassword123",
+        )
+
+        self.group = Group.objects.create(
+            name="Original Group",
+            description="Original description",
+            creator=self.owner,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.owner,
+            role=GroupMembership.Role.OWNER,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.admin,
+            role=GroupMembership.Role.ADMIN,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.member,
+            role=GroupMembership.Role.MEMBER,
+        )
+
+        self.group_url = reverse(
+            "group-detail",
+            kwargs={
+                "group_id": self.group.public_id,
+            },
+        )
+
+    def test_owner_can_edit_group(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.patch(
+            self.group_url,
+            {
+                "name": "Updated Group",
+                "description": "Updated description",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.group.refresh_from_db()
+
+        self.assertEqual(
+            self.group.name,
+            "Updated Group",
+        )
+        self.assertEqual(
+            self.group.description,
+            "Updated description",
+        )
+
+    def test_admin_can_edit_group(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.patch(
+            self.group_url,
+            {
+                "description": "Changed by admin",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.group.refresh_from_db()
+
+        self.assertEqual(
+            self.group.description,
+            "Changed by admin",
+        )
+
+    def test_member_cannot_edit_group(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.patch(
+            self.group_url,
+            {
+                "name": "Unauthorized Name",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "FORBIDDEN",
+        )
+
+        self.group.refresh_from_db()
+
+        self.assertEqual(
+            self.group.name,
+            "Original Group",
+        )
+
+    def test_empty_update_payload_is_rejected(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.patch(
+            self.group_url,
+            {},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "VALIDATION_ERROR",
+        )
+
+    def test_owner_can_soft_delete_group(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.group_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.group.refresh_from_db()
+
+        self.assertIsNotNone(
+            self.group.deleted_at
+        )
+
+        self.assertFalse(
+            Group.objects.active().filter(
+                pk=self.group.pk
+            ).exists()
+        )
+
+    def test_admin_cannot_delete_group(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.delete(
+            self.group_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "FORBIDDEN",
+        )
+
+        self.group.refresh_from_db()
+
+        self.assertIsNone(
+            self.group.deleted_at
+        )
+
+    def test_delete_group_cancels_pending_invitations(self):
+        invitation = GroupInvitation.objects.create(
+            group=self.group,
+            inviter=self.owner,
+            invitee=self.outsider,
+        )
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.group_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        invitation.refresh_from_db()
+
+        self.assertEqual(
+            invitation.status,
+            GroupInvitation.Status.CANCELED,
+        )
+
+        self.assertIsNotNone(
+            invitation.responded_at
+        )
+
+    def test_deleted_group_is_not_accessible(self):
+        self.group.soft_delete()
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.get(
+            self.group_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "NOT_FOUND",
+        )
+
+    def test_deleted_group_is_not_in_group_list(self):
+        self.group.soft_delete()
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.get(
+            reverse("groups")
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        group_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertNotIn(
+            self.group.public_id,
+            group_ids,
+        )
+
+    def test_outsider_cannot_edit_group(self):
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.patch(
+            self.group_url,
+            {
+                "name": "Outsider Update",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_unauthenticated_user_cannot_modify_group(self):
+        edit_response = self.client.patch(
+            self.group_url,
+            {
+                "name": "Unauthorized",
+            },
+            format="json",
+        )
+
+        delete_response = self.client.delete(
+            self.group_url
+        )
+
+        self.assertEqual(
+            edit_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+        self.assertEqual(
+            delete_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
