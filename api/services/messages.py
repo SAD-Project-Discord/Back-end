@@ -111,8 +111,24 @@ def list_channel_messages(channel_id, topic_id=None, limit=50, before=None):
     return _paginate_messages(queryset, limit, before)
 
 
-def get_message(public_id):
-    return _get_message_or_404(public_id)
+def get_message(public_id, requester=None):
+    message = _get_message_or_404(public_id)
+
+    if (
+        requester is not None
+        and message.message_type == Message.MessageType.DIRECT
+        and requester.id not in {
+            message.user_id,
+            message.receiver_id,
+        }
+    ):
+        raise MessageServiceError(
+            "FORBIDDEN",
+            "شما اجازه مشاهده این پیام خصوصی را ندارید.",
+            403,
+        )
+
+    return message
 
 
 def update_message(message, editor, content):
