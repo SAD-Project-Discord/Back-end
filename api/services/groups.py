@@ -91,6 +91,79 @@ def get_group(public_id, requester):
     return group
 
 
+@transaction.atomic
+def update_group(group_id, requester, data):
+    group = _get_group_or_404(group_id)
+
+    membership = GroupMembership.objects.filter(
+        group=group,
+        user=requester,
+    ).first()
+
+    allowed_roles = {
+        GroupMembership.Role.OWNER,
+        GroupMembership.Role.ADMIN,
+    }
+
+    if (
+        membership is None
+        or membership.role not in allowed_roles
+    ):
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "شما اجازه ویرایش این گروه را ندارید.",
+            403,
+        )
+
+    update_fields = []
+
+    if "name" in data:
+        group.name = data["name"].strip()
+        update_fields.append("name")
+
+    if "description" in data:
+        group.description = data["description"].strip()
+        update_fields.append("description")
+
+    update_fields.append("updated_at")
+
+    group.save(
+        update_fields=update_fields
+    )
+
+    return group
+
+
+@transaction.atomic
+def delete_group(group_id, requester):
+    group = _get_group_or_404(group_id)
+
+    is_owner = GroupMembership.objects.filter(
+        group=group,
+        user=requester,
+        role=GroupMembership.Role.OWNER,
+    ).exists()
+
+    if not is_owner:
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "فقط مالک گروه اجازه حذف آن را دارد.",
+            403,
+        )
+
+    group.soft_delete()
+
+    GroupInvitation.objects.filter(
+        group=group,
+        status=GroupInvitation.Status.PENDING,
+    ).update(
+        status=GroupInvitation.Status.CANCELED,
+        responded_at=timezone.now(),
+    )
+
+    return group
+
+
 def list_user_groups(user):
     return (
         Group.objects.active()
