@@ -2,10 +2,12 @@ from rest_framework import serializers
 
 from api.models import (
     AuthSession,
+    Channel,
     Group,
     GroupInvitation,
     GroupMembership,
     Message,
+    Topic,
     User,
 )
 
@@ -306,3 +308,106 @@ class UpdateGroupSerializer(serializers.Serializer):
             )
 
         return attrs
+
+
+class CreateChannelSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=100,
+        trim_whitespace=True,
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+
+
+class ChannelSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(
+        source="public_id",
+        read_only=True,
+    )
+    creator_id = serializers.CharField(
+        source="creator.public_id",
+        read_only=True,
+    )
+    topic_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Channel
+        fields = [
+            "id",
+            "name",
+            "description",
+            "creator_id",
+            "topic_count",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_topic_count(self, obj):
+        return obj.topics.filter(
+            deleted_at__isnull=True,
+        ).count()
+
+
+class CreateTopicSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=100,
+        trim_whitespace=True,
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        trim_whitespace=True,
+    )
+
+
+class UpdateTopicSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        required=False,
+        max_length=100,
+        trim_whitespace=True,
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=True,
+    )
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError(
+                "حداقل یکی از فیلدهای name یا description الزامی است."
+            )
+
+        return attrs
+
+
+class TopicSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(
+        source="public_id",
+        read_only=True,
+    )
+    channel_id = serializers.CharField(
+        source="channel.public_id",
+        read_only=True,
+    )
+    creator_id = serializers.CharField(
+        source="creator.public_id",
+        read_only=True,
+    )
+
+    class Meta:
+        model = Topic
+        fields = [
+            "id",
+            "channel_id",
+            "name",
+            "description",
+            "creator_id",
+            "created_at",
+            "updated_at",
+        ]
