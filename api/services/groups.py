@@ -174,6 +174,150 @@ def list_user_groups(user):
     )
 
 
+def list_group_members(group_id, requester):
+    group = _get_group_or_404(group_id)
+
+    is_member = GroupMembership.objects.filter(
+        group=group,
+        user=requester,
+    ).exists()
+
+    if not is_member:
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "شما عضو این گروه نیستید.",
+            403,
+        )
+
+    return (
+        GroupMembership.objects.filter(
+            group=group,
+        )
+        .select_related("user")
+        .order_by("joined_at")
+    )
+
+
+@transaction.atomic
+def remove_group_member(
+    group_id,
+    requester,
+    member_user_id,
+):
+    group = _get_group_or_404(group_id)
+
+    requester_membership = (
+        GroupMembership.objects.select_for_update()
+        .filter(
+            group=group,
+            user=requester,
+        )
+        .first()
+    )
+
+    if requester_membership is None:
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "شما عضو این گروه نیستید.",
+            403,
+        )
+
+    target_user = _get_user_or_404(
+        member_user_id
+    )
+
+    target_membership = (
+        GroupMembership.objects.select_for_update()
+        .filter(
+            group=group,
+            user=target_user,
+        )
+        .first()
+    )
+
+    if target_membership is None:
+        raise GroupServiceError(
+            "NOT_FOUND",
+            "عضو مورد نظر در این گروه یافت نشد.",
+            404,
+        )
+
+    if (
+        target_membership.role
+        == GroupMembership.Role.OWNER
+    ):
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "مالک گروه را نمی‌توان حذف کرد.",
+            403,
+        )
+
+    requester_is_owner = (
+        requester_membership.role
+        == GroupMembership.Role.OWNER
+    )
+
+    requester_is_admin = (
+        requester_membership.role
+        == GroupMembership.Role.ADMIN
+    )
+
+    target_is_regular_member = (
+        target_membership.role
+        == GroupMembership.Role.MEMBER
+    )
+
+    if requester_is_owner:
+        target_membership.delete()
+        return
+
+    if (
+        requester_is_admin
+        and target_is_regular_member
+    ):
+        target_membership.delete()
+        return
+
+    raise GroupServiceError(
+        "FORBIDDEN",
+        "شما اجازه حذف این عضو را ندارید.",
+        403,
+    )
+
+
+@transaction.atomic
+def leave_group(group_id, user):
+    group = _get_group_or_404(group_id)
+
+    membership = (
+        GroupMembership.objects.select_for_update()
+        .filter(
+            group=group,
+            user=user,
+        )
+        .first()
+    )
+
+    if membership is None:
+        raise GroupServiceError(
+            "NOT_FOUND",
+            "شما عضو این گروه نیستید.",
+            404,
+        )
+
+    if (
+        membership.role
+        == GroupMembership.Role.OWNER
+    ):
+        raise GroupServiceError(
+            "CONFLICT",
+            "مالک گروه نمی‌تواند گروه را ترک کند.",
+            409,
+        )
+
+    membership.delete()
+
+
 def create_group_invitation(group_id, inviter, invitee_id):
     group = _get_group_or_404(group_id)
     _require_group_admin(group, inviter)

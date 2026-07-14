@@ -1411,3 +1411,393 @@ class GroupEditDeleteTests(APITestCase):
             delete_response.status_code,
             status.HTTP_401_UNAUTHORIZED,
         )
+
+
+class GroupMembershipManagementTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="membership-owner@example.com",
+            username="membership_owner",
+            name="Membership Owner",
+            password="StrongPassword123",
+        )
+
+        self.admin = User.objects.create_user(
+            email="membership-admin@example.com",
+            username="membership_admin",
+            name="Membership Admin",
+            password="StrongPassword123",
+        )
+
+        self.second_admin = User.objects.create_user(
+            email="membership-admin-2@example.com",
+            username="membership_admin_2",
+            name="Second Admin",
+            password="StrongPassword123",
+        )
+
+        self.member = User.objects.create_user(
+            email="membership-member@example.com",
+            username="membership_member",
+            name="Membership Member",
+            password="StrongPassword123",
+        )
+
+        self.second_member = User.objects.create_user(
+            email="membership-member-2@example.com",
+            username="membership_member_2",
+            name="Second Member",
+            password="StrongPassword123",
+        )
+
+        self.outsider = User.objects.create_user(
+            email="membership-outsider@example.com",
+            username="membership_outsider",
+            name="Membership Outsider",
+            password="StrongPassword123",
+        )
+
+        self.group = Group.objects.create(
+            name="Membership Test Group",
+            description="Group membership tests",
+            creator=self.owner,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.owner,
+            role=GroupMembership.Role.OWNER,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.admin,
+            role=GroupMembership.Role.ADMIN,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.second_admin,
+            role=GroupMembership.Role.ADMIN,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.member,
+            role=GroupMembership.Role.MEMBER,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.second_member,
+            role=GroupMembership.Role.MEMBER,
+        )
+
+        self.members_url = reverse(
+            "group-members",
+            kwargs={
+                "group_id": self.group.public_id,
+            },
+        )
+
+        self.leave_url = reverse(
+            "group-leave",
+            kwargs={
+                "group_id": self.group.public_id,
+            },
+        )
+
+    def remove_url(self, user):
+        return reverse(
+            "group-member-remove",
+            kwargs={
+                "group_id": self.group.public_id,
+                "user_id": user.public_id,
+            },
+        )
+
+    def test_group_member_can_view_member_list(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.get(
+            self.members_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        member_ids = {
+            item["user_id"]
+            for item in response.data["data"]
+        }
+
+        self.assertEqual(
+            member_ids,
+            {
+                self.owner.public_id,
+                self.admin.public_id,
+                self.second_admin.public_id,
+                self.member.public_id,
+                self.second_member.public_id,
+            },
+        )
+
+    def test_outsider_cannot_view_member_list(self):
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.get(
+            self.members_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "FORBIDDEN",
+        )
+
+    def test_owner_can_remove_admin(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.remove_url(self.admin)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.assertFalse(
+            GroupMembership.objects.filter(
+                group=self.group,
+                user=self.admin,
+            ).exists()
+        )
+
+    def test_owner_can_remove_regular_member(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.remove_url(self.member)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.assertFalse(
+            GroupMembership.objects.filter(
+                group=self.group,
+                user=self.member,
+            ).exists()
+        )
+
+    def test_admin_can_remove_regular_member(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.delete(
+            self.remove_url(self.member)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.assertFalse(
+            GroupMembership.objects.filter(
+                group=self.group,
+                user=self.member,
+            ).exists()
+        )
+
+    def test_admin_cannot_remove_another_admin(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.delete(
+            self.remove_url(self.second_admin)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertTrue(
+            GroupMembership.objects.filter(
+                group=self.group,
+                user=self.second_admin,
+            ).exists()
+        )
+
+    def test_member_cannot_remove_another_member(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.delete(
+            self.remove_url(self.second_member)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertTrue(
+            GroupMembership.objects.filter(
+                group=self.group,
+                user=self.second_member,
+            ).exists()
+        )
+
+    def test_owner_cannot_be_removed(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.remove_url(self.owner)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertTrue(
+            GroupMembership.objects.filter(
+                group=self.group,
+                user=self.owner,
+                role=GroupMembership.Role.OWNER,
+            ).exists()
+        )
+
+    def test_regular_member_can_leave_group(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.delete(
+            self.leave_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.assertFalse(
+            GroupMembership.objects.filter(
+                group=self.group,
+                user=self.member,
+            ).exists()
+        )
+
+    def test_admin_can_leave_group(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.delete(
+            self.leave_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.assertFalse(
+            GroupMembership.objects.filter(
+                group=self.group,
+                user=self.admin,
+            ).exists()
+        )
+
+    def test_owner_cannot_leave_group(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.leave_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_409_CONFLICT,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "CONFLICT",
+        )
+
+        self.assertTrue(
+            GroupMembership.objects.filter(
+                group=self.group,
+                user=self.owner,
+            ).exists()
+        )
+
+    def test_outsider_cannot_leave_group(self):
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.delete(
+            self.leave_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_unauthenticated_user_cannot_manage_members(self):
+        list_response = self.client.get(
+            self.members_url
+        )
+
+        remove_response = self.client.delete(
+            self.remove_url(self.member)
+        )
+
+        leave_response = self.client.delete(
+            self.leave_url
+        )
+
+        self.assertEqual(
+            list_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+        self.assertEqual(
+            remove_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+        self.assertEqual(
+            leave_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
