@@ -313,6 +313,184 @@ class GroupInvitation(models.Model):
                 return public_id
 
 
+class ChannelQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(
+            deleted_at__isnull=True,
+        )
+
+
+class ChannelManager(
+    models.Manager.from_queryset(ChannelQuerySet)
+):
+    pass
+
+
+class Channel(models.Model):
+    public_id = models.CharField(
+        max_length=32,
+        unique=True,
+        editable=False,
+    )
+    name = models.CharField(
+        max_length=100,
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+    )
+    creator = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="created_channels",
+    )
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    objects = ChannelManager()
+
+    class Meta:
+        db_table = "channels"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
+
+    def soft_delete(self):
+        if self.deleted_at is None:
+            self.deleted_at = timezone.now()
+            self.save(
+                update_fields=[
+                    "deleted_at",
+                    "updated_at",
+                ]
+            )
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"chn_{secrets.token_hex(6)}"
+
+            if not Channel.objects.filter(
+                public_id=public_id
+            ).exists():
+                return public_id
+
+
+class TopicQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(
+            deleted_at__isnull=True,
+            channel__deleted_at__isnull=True,
+        )
+
+
+class TopicManager(
+    models.Manager.from_queryset(TopicQuerySet)
+):
+    pass
+
+
+class Topic(models.Model):
+    public_id = models.CharField(
+        max_length=32,
+        unique=True,
+        editable=False,
+    )
+    channel = models.ForeignKey(
+        Channel,
+        on_delete=models.CASCADE,
+        related_name="topics",
+    )
+    name = models.CharField(
+        max_length=100,
+    )
+    description = models.TextField(
+        blank=True,
+        default="",
+    )
+    creator = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="created_channel_topics",
+    )
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    objects = TopicManager()
+
+    class Meta:
+        db_table = "channel_topics"
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(
+                fields=[
+                    "channel",
+                    "created_at",
+                ]
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.channel.name} - {self.name}"
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
+
+    def soft_delete(self):
+        if self.deleted_at is None:
+            self.deleted_at = timezone.now()
+            self.save(
+                update_fields=[
+                    "deleted_at",
+                    "updated_at",
+                ]
+            )
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"top_{secrets.token_hex(6)}"
+
+            if not Topic.objects.filter(
+                public_id=public_id
+            ).exists():
+                return public_id
+
+
 class MessageQuerySet(models.QuerySet):
     def active(self):
         return self.filter(deleted_at__isnull=True)

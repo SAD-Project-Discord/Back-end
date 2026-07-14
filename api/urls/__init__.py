@@ -8,4 +8,5 @@ urlpatterns = [
     path("messages/", include("api.urls.messages")),
     path("users/", include("api.urls.users")),
     path("groups/", include("api.urls.groups")),
+    path("channels/", include("api.urls.channels")),
 ]

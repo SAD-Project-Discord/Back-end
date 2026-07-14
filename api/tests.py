@@ -5,10 +5,12 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from api.models import (
+    Channel,
     Group,
     GroupInvitation,
     GroupMembership,
     Message,
+    Topic,
     User,
 )
 
@@ -1799,5 +1801,434 @@ class GroupMembershipManagementTests(APITestCase):
 
         self.assertEqual(
             leave_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+
+class ChannelCreationTopicManagementTests(APITestCase):
+    def setUp(self):
+        self.creator = User.objects.create_user(
+            email="channel-creator@example.com",
+            username="channel_creator",
+            name="Channel Creator",
+            password="StrongPassword123",
+        )
+
+        self.other_user = User.objects.create_user(
+            email="channel-other@example.com",
+            username="channel_other",
+            name="Other User",
+            password="StrongPassword123",
+        )
+
+        self.channel = Channel.objects.create(
+            name="Development Channel",
+            description="Development discussions",
+            creator=self.creator,
+        )
+
+        self.channels_url = reverse("channels")
+
+        self.channel_detail_url = reverse(
+            "channel-detail",
+            kwargs={
+                "channel_id": self.channel.public_id,
+            },
+        )
+
+        self.topics_url = reverse(
+            "channel-topics",
+            kwargs={
+                "channel_id": self.channel.public_id,
+            },
+        )
+
+    def topic_detail_url(self, topic):
+        return reverse(
+            "channel-topic-detail",
+            kwargs={
+                "channel_id": self.channel.public_id,
+                "topic_id": topic.public_id,
+            },
+        )
+
+    def test_authenticated_user_can_create_channel(self):
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.post(
+            self.channels_url,
+            {
+                "name": "New Channel",
+                "description": "New channel description",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        channel = Channel.objects.get(
+            public_id=response.data["data"]["id"]
+        )
+
+        self.assertEqual(
+            channel.name,
+            "New Channel",
+        )
+        self.assertEqual(
+            channel.creator,
+            self.other_user,
+        )
+
+    def test_authenticated_user_can_list_channels(self):
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.get(
+            self.channels_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        channel_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertIn(
+            self.channel.public_id,
+            channel_ids,
+        )
+
+    def test_authenticated_user_can_view_channel_detail(self):
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.get(
+            self.channel_detail_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.assertEqual(
+            response.data["data"]["id"],
+            self.channel.public_id,
+        )
+
+    def test_channel_creator_can_create_topic(self):
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        response = self.client.post(
+            self.topics_url,
+            {
+                "name": "Backend",
+                "description": "Backend discussions",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        topic = Topic.objects.get(
+            public_id=response.data["data"]["id"]
+        )
+
+        self.assertEqual(
+            topic.channel,
+            self.channel,
+        )
+        self.assertEqual(
+            topic.creator,
+            self.creator,
+        )
+        self.assertEqual(
+            topic.name,
+            "Backend",
+        )
+
+    def test_non_creator_cannot_create_topic(self):
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.post(
+            self.topics_url,
+            {
+                "name": "Unauthorized Topic",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "FORBIDDEN",
+        )
+
+    def test_duplicate_topic_name_is_rejected(self):
+        Topic.objects.create(
+            channel=self.channel,
+            name="Backend",
+            creator=self.creator,
+        )
+
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        response = self.client.post(
+            self.topics_url,
+            {
+                "name": "backend",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_409_CONFLICT,
+        )
+
+        self.assertEqual(
+            Topic.objects.filter(
+                channel=self.channel,
+                name__iexact="backend",
+                deleted_at__isnull=True,
+            ).count(),
+            1,
+        )
+
+    def test_authenticated_user_can_list_channel_topics(self):
+        topic = Topic.objects.create(
+            channel=self.channel,
+            name="Frontend",
+            creator=self.creator,
+        )
+
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.get(
+            self.topics_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        topic_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertIn(
+            topic.public_id,
+            topic_ids,
+        )
+
+    def test_creator_can_update_topic(self):
+        topic = Topic.objects.create(
+            channel=self.channel,
+            name="Old Topic",
+            description="Old description",
+            creator=self.creator,
+        )
+
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        response = self.client.patch(
+            self.topic_detail_url(topic),
+            {
+                "name": "Updated Topic",
+                "description": "Updated description",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        topic.refresh_from_db()
+
+        self.assertEqual(
+            topic.name,
+            "Updated Topic",
+        )
+        self.assertEqual(
+            topic.description,
+            "Updated description",
+        )
+
+    def test_non_creator_cannot_update_topic(self):
+        topic = Topic.objects.create(
+            channel=self.channel,
+            name="Protected Topic",
+            creator=self.creator,
+        )
+
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.patch(
+            self.topic_detail_url(topic),
+            {
+                "name": "Unauthorized Update",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        topic.refresh_from_db()
+
+        self.assertEqual(
+            topic.name,
+            "Protected Topic",
+        )
+
+    def test_creator_can_soft_delete_topic(self):
+        topic = Topic.objects.create(
+            channel=self.channel,
+            name="Temporary Topic",
+            creator=self.creator,
+        )
+
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        response = self.client.delete(
+            self.topic_detail_url(topic)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        topic.refresh_from_db()
+
+        self.assertIsNotNone(
+            topic.deleted_at
+        )
+
+        self.assertFalse(
+            Topic.objects.active().filter(
+                pk=topic.pk
+            ).exists()
+        )
+
+    def test_deleted_topic_is_not_in_topic_list(self):
+        topic = Topic.objects.create(
+            channel=self.channel,
+            name="Deleted Topic",
+            creator=self.creator,
+        )
+        topic.soft_delete()
+
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        response = self.client.get(
+            self.topics_url
+        )
+
+        topic_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertNotIn(
+            topic.public_id,
+            topic_ids,
+        )
+
+    def test_topic_must_belong_to_requested_channel(self):
+        other_channel = Channel.objects.create(
+            name="Other Channel",
+            creator=self.other_user,
+        )
+
+        topic = Topic.objects.create(
+            channel=other_channel,
+            name="Other Topic",
+            creator=self.other_user,
+        )
+
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        response = self.client.get(
+            reverse(
+                "channel-topic-detail",
+                kwargs={
+                    "channel_id": self.channel.public_id,
+                    "topic_id": topic.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_unauthenticated_user_cannot_create_channel_or_topic(self):
+        channel_response = self.client.post(
+            self.channels_url,
+            {
+                "name": "Unauthorized Channel",
+            },
+            format="json",
+        )
+
+        topic_response = self.client.post(
+            self.topics_url,
+            {
+                "name": "Unauthorized Topic",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            channel_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+        self.assertEqual(
+            topic_response.status_code,
             status.HTTP_401_UNAUTHORIZED,
         )
