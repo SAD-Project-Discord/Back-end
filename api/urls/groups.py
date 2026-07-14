@@ -25,6 +25,21 @@ urlpatterns = [
         name="group-invitation-create",
     ),
     path(
+        "<str:group_id>/members",
+        groups.group_member_list,
+        name="group-members",
+    ),
+    path(
+        "<str:group_id>/members/me",
+        groups.group_leave,
+        name="group-leave",
+    ),
+    path(
+        "<str:group_id>/members/<str:user_id>",
+        groups.group_member_remove,
+        name="group-member-remove",
+    ),
+    path(
         "<str:group_id>",
         groups.group_detail,
         name="group-detail",

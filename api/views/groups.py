@@ -6,6 +6,7 @@ from api.serializers import (
     CreateGroupInvitationSerializer,
     CreateGroupSerializer,
     GroupInvitationSerializer,
+    GroupMembershipSerializer,
     GroupSerializer,
     RespondGroupInvitationSerializer,
     UpdateGroupSerializer,
@@ -16,8 +17,11 @@ from api.services.groups import (
     create_group_invitation,
     delete_group,
     get_group,
+    leave_group,
+    list_group_members,
     list_received_invitations,
     list_user_groups,
+    remove_group_member,
     respond_to_group_invitation,
     update_group,
 )
@@ -200,3 +204,55 @@ def group_invitation_respond(
     return success_response(
         GroupInvitationSerializer(invitation).data
     )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def group_member_list(request, group_id):
+    try:
+        memberships = list_group_members(
+            group_id,
+            request.user,
+        )
+    except GroupServiceError as exc:
+        return _handle_service_error(exc)
+
+    return success_response(
+        GroupMembershipSerializer(
+            memberships,
+            many=True,
+        ).data
+    )
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def group_member_remove(
+    request,
+    group_id,
+    user_id,
+):
+    try:
+        remove_group_member(
+            group_id,
+            request.user,
+            user_id,
+        )
+    except GroupServiceError as exc:
+        return _handle_service_error(exc)
+
+    return no_content_response()
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def group_leave(request, group_id):
+    try:
+        leave_group(
+            group_id,
+            request.user,
+        )
+    except GroupServiceError as exc:
+        return _handle_service_error(exc)
+
+    return no_content_response()
