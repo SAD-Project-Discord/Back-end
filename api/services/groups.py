@@ -1,7 +1,17 @@
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from api.models import Group, GroupInvitation, GroupMembership, User
+from api.models import (
+    AccessPermission,
+    Group,
+    GroupInvitation,
+    GroupMembership,
+    User,
+)
+
+from api.services.access_control import (
+    has_group_permission,
+)
 
 
 class GroupServiceError(Exception):
@@ -37,25 +47,22 @@ def _get_user_or_404(public_id):
         ) from exc
 
 
-def _require_group_admin(group, user):
-    membership = GroupMembership.objects.filter(
-        group=group,
-        user=user,
-    ).first()
-
-    allowed_roles = {
-        GroupMembership.Role.OWNER,
-        GroupMembership.Role.ADMIN,
-    }
-
-    if membership is None or membership.role not in allowed_roles:
+def _require_group_permission(
+    group,
+    user,
+    permission,
+    message,
+):
+    if not has_group_permission(
+        group,
+        user,
+        permission,
+    ):
         raise GroupServiceError(
             "FORBIDDEN",
-            "شما اجازه مدیریت دعوت‌های این گروه را ندارید.",
+            message,
             403,
         )
-
-    return membership
 
 
 @transaction.atomic
@@ -95,25 +102,12 @@ def get_group(public_id, requester):
 def update_group(group_id, requester, data):
     group = _get_group_or_404(group_id)
 
-    membership = GroupMembership.objects.filter(
-        group=group,
-        user=requester,
-    ).first()
-
-    allowed_roles = {
-        GroupMembership.Role.OWNER,
-        GroupMembership.Role.ADMIN,
-    }
-
-    if (
-        membership is None
-        or membership.role not in allowed_roles
-    ):
-        raise GroupServiceError(
-            "FORBIDDEN",
-            "شما اجازه ویرایش این گروه را ندارید.",
-            403,
-        )
+    _require_group_permission(
+        group,
+        requester,
+        AccessPermission.MANAGE_GROUP,
+        "شما اجازه ویرایش این گروه را ندارید.",
+    )
 
     update_fields = []
 
@@ -194,6 +188,7 @@ def list_group_members(group_id, requester):
             group=group,
         )
         .select_related("user")
+        .prefetch_related("custom_roles")
         .order_by("joined_at")
     )
 
@@ -219,6 +214,17 @@ def remove_group_member(
         raise GroupServiceError(
             "FORBIDDEN",
             "شما عضو این گروه نیستید.",
+            403,
+        )
+
+    if not has_group_permission(
+        group,
+        requester,
+        AccessPermission.MANAGE_MEMBERS,
+    ):
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "شما اجازه حذف اعضای این گروه را ندارید.",
             403,
         )
 
@@ -257,32 +263,19 @@ def remove_group_member(
         == GroupMembership.Role.OWNER
     )
 
-    requester_is_admin = (
-        requester_membership.role
+    target_is_admin = (
+        target_membership.role
         == GroupMembership.Role.ADMIN
     )
 
-    target_is_regular_member = (
-        target_membership.role
-        == GroupMembership.Role.MEMBER
-    )
+    if target_is_admin and not requester_is_owner:
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "فقط مالک گروه می‌تواند مدیر را حذف کند.",
+            403,
+        )
 
-    if requester_is_owner:
-        target_membership.delete()
-        return
-
-    if (
-        requester_is_admin
-        and target_is_regular_member
-    ):
-        target_membership.delete()
-        return
-
-    raise GroupServiceError(
-        "FORBIDDEN",
-        "شما اجازه حذف این عضو را ندارید.",
-        403,
-    )
+    target_membership.delete()
 
 
 @transaction.atomic
@@ -320,7 +313,12 @@ def leave_group(group_id, user):
 
 def create_group_invitation(group_id, inviter, invitee_id):
     group = _get_group_or_404(group_id)
-    _require_group_admin(group, inviter)
+    _require_group_permission(
+        group,
+        inviter,
+        AccessPermission.MANAGE_INVITATIONS,
+        "شما اجازه مدیریت دعوت‌های این گروه را ندارید.",
+    )
 
     invitee = _get_user_or_404(invitee_id)
 

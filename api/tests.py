@@ -5,6 +5,8 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from api.models import (
+    AccessPermission,
+    AccessRole,
     Channel,
     Group,
     GroupInvitation,
@@ -2230,5 +2232,667 @@ class ChannelCreationTopicManagementTests(APITestCase):
 
         self.assertEqual(
             topic_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+
+class RoleCustomizationAccessControlTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="role-owner@example.com",
+            username="role_owner",
+            name="Role Owner",
+            password="StrongPassword123",
+        )
+
+        self.member = User.objects.create_user(
+            email="role-member@example.com",
+            username="role_member",
+            name="Role Member",
+            password="StrongPassword123",
+        )
+
+        self.second_member = User.objects.create_user(
+            email="role-member-2@example.com",
+            username="role_member_2",
+            name="Second Role Member",
+            password="StrongPassword123",
+        )
+
+        self.outsider = User.objects.create_user(
+            email="role-outsider@example.com",
+            username="role_outsider",
+            name="Role Outsider",
+            password="StrongPassword123",
+        )
+
+        self.invitee = User.objects.create_user(
+            email="role-invitee@example.com",
+            username="role_invitee",
+            name="Role Invitee",
+            password="StrongPassword123",
+        )
+
+        self.group = Group.objects.create(
+            name="Role Test Group",
+            description="Role customization tests",
+            creator=self.owner,
+        )
+
+        self.owner_membership = (
+            GroupMembership.objects.create(
+                group=self.group,
+                user=self.owner,
+                role=GroupMembership.Role.OWNER,
+            )
+        )
+
+        self.member_membership = (
+            GroupMembership.objects.create(
+                group=self.group,
+                user=self.member,
+                role=GroupMembership.Role.MEMBER,
+            )
+        )
+
+        self.second_member_membership = (
+            GroupMembership.objects.create(
+                group=self.group,
+                user=self.second_member,
+                role=GroupMembership.Role.MEMBER,
+            )
+        )
+
+        self.other_group = Group.objects.create(
+            name="Other Role Group",
+            creator=self.outsider,
+        )
+
+        GroupMembership.objects.create(
+            group=self.other_group,
+            user=self.outsider,
+            role=GroupMembership.Role.OWNER,
+        )
+
+        self.roles_url = reverse(
+            "group-roles",
+            kwargs={
+                "group_id": self.group.public_id,
+            },
+        )
+
+        self.group_detail_url = reverse(
+            "group-detail",
+            kwargs={
+                "group_id": self.group.public_id,
+            },
+        )
+
+        self.invitation_url = reverse(
+            "group-invitation-create",
+            kwargs={
+                "group_id": self.group.public_id,
+            },
+        )
+
+    def role_detail_url(self, role):
+        return reverse(
+            "group-role-detail",
+            kwargs={
+                "group_id": self.group.public_id,
+                "role_id": role.public_id,
+            },
+        )
+
+    def assign_role_url(self, user):
+        return reverse(
+            "group-member-role-assign",
+            kwargs={
+                "group_id": self.group.public_id,
+                "user_id": user.public_id,
+            },
+        )
+
+    def remove_role_url(self, user, role):
+        return reverse(
+            "group-member-role-remove",
+            kwargs={
+                "group_id": self.group.public_id,
+                "user_id": user.public_id,
+                "role_id": role.public_id,
+            },
+        )
+
+    def remove_member_url(self, user):
+        return reverse(
+            "group-member-remove",
+            kwargs={
+                "group_id": self.group.public_id,
+                "user_id": user.public_id,
+            },
+        )
+
+    def create_role(
+        self,
+        name="Moderator",
+        permissions=None,
+    ):
+        if permissions is None:
+            permissions = []
+
+        return AccessRole.objects.create(
+            group=self.group,
+            name=name,
+            permissions=permissions,
+            created_by=self.owner,
+        )
+
+    def test_owner_can_create_custom_role(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.post(
+            self.roles_url,
+            {
+                "name": "Moderator",
+                "permissions": [
+                    AccessPermission.MANAGE_MEMBERS,
+                    AccessPermission.DELETE_MESSAGES,
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        role = AccessRole.objects.get(
+            public_id=response.data["data"]["id"]
+        )
+
+        self.assertEqual(
+            role.name,
+            "Moderator",
+        )
+
+        self.assertEqual(
+            set(role.permissions),
+            {
+                AccessPermission.MANAGE_MEMBERS,
+                AccessPermission.DELETE_MESSAGES,
+            },
+        )
+
+        self.assertEqual(
+            response.data["data"]["scope_type"],
+            "group",
+        )
+
+    def test_regular_member_cannot_create_custom_role(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            self.roles_url,
+            {
+                "name": "Unauthorized Role",
+                "permissions": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "FORBIDDEN",
+        )
+
+    def test_duplicate_role_name_is_rejected_case_insensitively(self):
+        self.create_role(
+            name="Moderator"
+        )
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.post(
+            self.roles_url,
+            {
+                "name": "moderator",
+                "permissions": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_409_CONFLICT,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "CONFLICT",
+        )
+
+    def test_group_member_can_list_active_roles(self):
+        active_role = self.create_role(
+            name="Active Role"
+        )
+
+        deleted_role = self.create_role(
+            name="Deleted Role"
+        )
+        deleted_role.soft_delete()
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.get(
+            self.roles_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        role_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertIn(
+            active_role.public_id,
+            role_ids,
+        )
+
+        self.assertNotIn(
+            deleted_role.public_id,
+            role_ids,
+        )
+
+    def test_outsider_cannot_list_group_roles(self):
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.get(
+            self.roles_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_owner_can_update_custom_role(self):
+        role = self.create_role()
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.patch(
+            self.role_detail_url(role),
+            {
+                "name": "Senior Moderator",
+                "permissions": [
+                    AccessPermission.MANAGE_MEMBERS,
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        role.refresh_from_db()
+
+        self.assertEqual(
+            role.name,
+            "Senior Moderator",
+        )
+
+        self.assertEqual(
+            role.permissions,
+            [
+                AccessPermission.MANAGE_MEMBERS,
+            ],
+        )
+
+    def test_owner_can_delete_role_and_remove_assignments(self):
+        role = self.create_role()
+
+        self.member_membership.custom_roles.add(
+            role
+        )
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.role_detail_url(role)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        role.refresh_from_db()
+
+        self.assertIsNotNone(
+            role.deleted_at
+        )
+
+        self.assertFalse(
+            self.member_membership.custom_roles.filter(
+                pk=role.pk
+            ).exists()
+        )
+
+    def test_owner_can_assign_role_to_group_member(self):
+        role = self.create_role(
+            permissions=[
+                AccessPermission.MANAGE_GROUP,
+            ]
+        )
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.post(
+            self.assign_role_url(self.member),
+            {
+                "role_id": role.public_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.assertTrue(
+            self.member_membership.custom_roles.filter(
+                pk=role.pk
+            ).exists()
+        )
+
+        assigned_role_ids = {
+            item["id"]
+            for item in response.data[
+                "data"
+            ]["custom_roles"]
+        }
+
+        self.assertIn(
+            role.public_id,
+            assigned_role_ids,
+        )
+
+    def test_role_from_another_group_cannot_be_assigned(self):
+        other_role = AccessRole.objects.create(
+            group=self.other_group,
+            name="Other Group Role",
+            permissions=[
+                AccessPermission.MANAGE_GROUP,
+            ],
+            created_by=self.outsider,
+        )
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.post(
+            self.assign_role_url(self.member),
+            {
+                "role_id": other_role.public_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        self.assertFalse(
+            self.member_membership.custom_roles.filter(
+                pk=other_role.pk
+            ).exists()
+        )
+
+    def test_role_cannot_be_assigned_to_non_member(self):
+        role = self.create_role()
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.post(
+            self.assign_role_url(self.outsider),
+            {
+                "role_id": role.public_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_manage_roles_permission_allows_role_management(self):
+        role_manager = self.create_role(
+            name="Role Manager",
+            permissions=[
+                AccessPermission.MANAGE_ROLES,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            role_manager
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            self.roles_url,
+            {
+                "name": "Created By Member",
+                "permissions": [
+                    AccessPermission.SEND_MESSAGES,
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        self.assertTrue(
+            AccessRole.objects.active().filter(
+                group=self.group,
+                name="Created By Member",
+                created_by=self.member,
+            ).exists()
+        )
+
+    def test_manage_group_permission_allows_group_update(self):
+        group_manager = self.create_role(
+            name="Group Manager",
+            permissions=[
+                AccessPermission.MANAGE_GROUP,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            group_manager
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.patch(
+            self.group_detail_url,
+            {
+                "name": "Updated By Custom Role",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.group.refresh_from_db()
+
+        self.assertEqual(
+            self.group.name,
+            "Updated By Custom Role",
+        )
+
+    def test_manage_invitations_permission_allows_inviting_user(self):
+        invitation_manager = self.create_role(
+            name="Invitation Manager",
+            permissions=[
+                AccessPermission.MANAGE_INVITATIONS,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            invitation_manager
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            self.invitation_url,
+            {
+                "invitee_id": self.invitee.public_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        self.assertTrue(
+            GroupInvitation.objects.filter(
+                group=self.group,
+                inviter=self.member,
+                invitee=self.invitee,
+                status=GroupInvitation.Status.PENDING,
+            ).exists()
+        )
+
+    def test_manage_members_permission_allows_removing_member(self):
+        membership_manager = self.create_role(
+            name="Membership Manager",
+            permissions=[
+                AccessPermission.MANAGE_MEMBERS,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            membership_manager
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.delete(
+            self.remove_member_url(
+                self.second_member
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.assertFalse(
+            GroupMembership.objects.filter(
+                group=self.group,
+                user=self.second_member,
+            ).exists()
+        )
+
+    def test_invalid_permission_is_rejected(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.post(
+            self.roles_url,
+            {
+                "name": "Invalid Role",
+                "permissions": [
+                    "destroy_everything",
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "VALIDATION_ERROR",
+        )
+
+    def test_unauthenticated_user_cannot_manage_roles(self):
+        list_response = self.client.get(
+            self.roles_url
+        )
+
+        create_response = self.client.post(
+            self.roles_url,
+            {
+                "name": "Anonymous Role",
+                "permissions": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            list_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+        self.assertEqual(
+            create_response.status_code,
             status.HTTP_401_UNAUTHORIZED,
         )

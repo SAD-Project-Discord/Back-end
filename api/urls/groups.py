@@ -1,6 +1,6 @@
 from django.urls import path
 
-from api.views import groups
+from api.views import groups, roles
 
 
 urlpatterns = [
@@ -38,6 +38,26 @@ urlpatterns = [
         "<str:group_id>/members/<str:user_id>",
         groups.group_member_remove,
         name="group-member-remove",
+    ),
+    path(
+        "<str:group_id>/roles",
+        roles.group_role_list_create,
+        name="group-roles",
+    ),
+    path(
+    "<str:group_id>/roles/<str:role_id>",
+        roles.group_role_detail,
+        name="group-role-detail",
+    ),
+    path(
+        "<str:group_id>/members/<str:user_id>/roles",
+        roles.group_member_role_assign,
+        name="group-member-role-assign",
+    ),
+    path(
+        "<str:group_id>/members/<str:user_id>/roles/<str:role_id>",
+        roles.group_member_role_remove,
+        name="group-member-role-remove",
     ),
     path(
         "<str:group_id>",
