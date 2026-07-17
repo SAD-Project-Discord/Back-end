@@ -213,6 +213,11 @@ class GroupMembership(models.Model):
         choices=Role.choices,
         default=Role.MEMBER,
     )
+    custom_roles = models.ManyToManyField(
+        "AccessRole",
+        related_name="group_memberships",
+        blank=True,
+    )
     joined_at = models.DateTimeField(
         auto_now_add=True,
     )
@@ -308,6 +313,170 @@ class GroupInvitation(models.Model):
             public_id = f"ginv_{secrets.token_hex(6)}"
 
             if not GroupInvitation.objects.filter(
+                public_id=public_id
+            ).exists():
+                return public_id
+
+
+class AccessPermission(models.TextChoices):
+    MANAGE_GROUP = "manage_group", "Manage Group"
+    MANAGE_MEMBERS = "manage_members", "Manage Members"
+    MANAGE_ROLES = "manage_roles", "Manage Roles"
+    MANAGE_INVITATIONS = (
+        "manage_invitations",
+        "Manage Invitations",
+    )
+
+    MANAGE_CHANNEL = "manage_channel", "Manage Channel"
+    MANAGE_TOPICS = "manage_topics", "Manage Topics"
+    MANAGE_CHANNEL_MEMBERS = (
+        "manage_channel_members",
+        "Manage Channel Members",
+    )
+
+    SEND_MESSAGES = "send_messages", "Send Messages"
+    EDIT_MESSAGES = "edit_messages", "Edit Messages"
+    DELETE_MESSAGES = "delete_messages", "Delete Messages"
+
+
+class AccessRoleQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(
+            deleted_at__isnull=True,
+        )
+
+
+class AccessRoleManager(
+    models.Manager.from_queryset(AccessRoleQuerySet)
+):
+    pass
+
+
+class AccessRole(models.Model):
+    public_id = models.CharField(
+        max_length=32,
+        unique=True,
+        editable=False,
+    )
+    name = models.CharField(
+        max_length=100,
+    )
+    permissions = models.JSONField(
+        default=list,
+        blank=True,
+    )
+
+    group = models.ForeignKey(
+        Group,
+        on_delete=models.CASCADE,
+        related_name="custom_roles",
+        null=True,
+        blank=True,
+    )
+    channel = models.ForeignKey(
+        "Channel",
+        on_delete=models.CASCADE,
+        related_name="custom_roles",
+        null=True,
+        blank=True,
+    )
+
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="created_access_roles",
+    )
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+    updated_at = models.DateTimeField(
+        auto_now=True,
+    )
+
+    objects = AccessRoleManager()
+
+    class Meta:
+        db_table = "access_roles"
+        ordering = ["created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    (
+                        models.Q(group__isnull=False)
+                        & models.Q(channel__isnull=True)
+                    )
+                    |
+                    (
+                        models.Q(group__isnull=True)
+                        & models.Q(channel__isnull=False)
+                    )
+                ),
+                name="access_role_exactly_one_scope",
+            ),
+            models.UniqueConstraint(
+                fields=["group", "name"],
+                condition=models.Q(
+                    group__isnull=False,
+                    deleted_at__isnull=True,
+                ),
+                name="unique_active_group_role_name",
+            ),
+            models.UniqueConstraint(
+                fields=["channel", "name"],
+                condition=models.Q(
+                    channel__isnull=False,
+                    deleted_at__isnull=True,
+                ),
+                name="unique_active_channel_role_name",
+            ),
+        ]
+
+    def __str__(self):
+        if self.group_id:
+            return f"{self.group.name} - {self.name}"
+
+        return f"{self.channel.name} - {self.name}"
+
+    @property
+    def is_deleted(self):
+        return self.deleted_at is not None
+
+    @property
+    def scope_type(self):
+        if self.group_id:
+            return "group"
+
+        return "channel"
+
+    def has_permission(self, permission):
+        return permission in self.permissions
+
+    def soft_delete(self):
+        if self.deleted_at is None:
+            self.deleted_at = timezone.now()
+            self.save(
+                update_fields=[
+                    "deleted_at",
+                    "updated_at",
+                ]
+            )
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"rol_{secrets.token_hex(6)}"
+
+            if not AccessRole.objects.filter(
                 public_id=public_id
             ).exists():
                 return public_id
