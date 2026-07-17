@@ -1,6 +1,8 @@
 from rest_framework import serializers
 
 from api.models import (
+    AccessPermission,
+    AccessRole,
     AuthSession,
     Channel,
     Group,
@@ -193,6 +195,7 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
         source="user.name",
         read_only=True,
     )
+    custom_roles = serializers.SerializerMethodField()
 
     class Meta:
         model = GroupMembership
@@ -201,7 +204,22 @@ class GroupMembershipSerializer(serializers.ModelSerializer):
             "username",
             "name",
             "role",
+            "custom_roles",
             "joined_at",
+        ]
+
+    def get_custom_roles(self, obj):
+        roles = obj.custom_roles.filter(
+            deleted_at__isnull=True,
+        ).order_by("created_at")
+
+        return [
+            {
+                "id": role.public_id,
+                "name": role.name,
+                "permissions": role.permissions,
+            }
+            for role in roles
         ]
 
 
@@ -411,3 +429,85 @@ class TopicSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+
+class AccessRoleSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(
+        source="public_id",
+        read_only=True,
+    )
+    scope_type = serializers.CharField(
+        read_only=True,
+    )
+    group_id = serializers.CharField(
+        source="group.public_id",
+        read_only=True,
+        allow_null=True,
+    )
+    channel_id = serializers.CharField(
+        source="channel.public_id",
+        read_only=True,
+        allow_null=True,
+    )
+    created_by_id = serializers.CharField(
+        source="created_by.public_id",
+        read_only=True,
+    )
+
+    class Meta:
+        model = AccessRole
+        fields = [
+            "id",
+            "name",
+            "permissions",
+            "scope_type",
+            "group_id",
+            "channel_id",
+            "created_by_id",
+            "created_at",
+            "updated_at",
+        ]
+
+
+class CreateAccessRoleSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=100,
+        trim_whitespace=True,
+    )
+    permissions = serializers.MultipleChoiceField(
+        choices=AccessPermission.choices,
+        required=False,
+        allow_empty=True,
+        default=list,
+    )
+
+    def validate_permissions(self, value):
+        return list(value)
+
+
+class UpdateAccessRoleSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        required=False,
+        max_length=100,
+        trim_whitespace=True,
+    )
+    permissions = serializers.MultipleChoiceField(
+        choices=AccessPermission.choices,
+        required=False,
+        allow_empty=True,
+    )
+
+    def validate_permissions(self, value):
+        return list(value)
+
+    def validate(self, attrs):
+        if not attrs:
+            raise serializers.ValidationError(
+                "حداقل یکی از فیلدهای name یا permissions الزامی است."
+            )
+
+        return attrs
+
+
+class AssignAccessRoleSerializer(serializers.Serializer):
+    role_id = serializers.CharField()
