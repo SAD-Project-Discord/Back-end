@@ -2933,6 +2933,18 @@ class ChannelEditDeleteTests(APITestCase):
             creator=self.creator,
         )
 
+        ChannelMembership.objects.create(
+            channel=self.channel,
+            user=self.creator,
+            role=ChannelMembership.Role.OWNER,
+        )
+
+        ChannelMembership.objects.create(
+            channel=self.channel,
+            user=self.other_user,
+            role=ChannelMembership.Role.MEMBER,
+        )
+
         self.channel_detail_url = reverse(
             "channel-detail",
             kwargs={
