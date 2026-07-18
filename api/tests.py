@@ -8,6 +8,7 @@ from api.models import (
     AccessPermission,
     AccessRole,
     Channel,
+    ChannelMembership,
     Group,
     GroupInvitation,
     GroupMembership,
@@ -1829,6 +1830,18 @@ class ChannelCreationTopicManagementTests(APITestCase):
             creator=self.creator,
         )
 
+        ChannelMembership.objects.create(
+            channel=self.channel,
+            user=self.creator,
+            role=ChannelMembership.Role.OWNER,
+        )
+
+        ChannelMembership.objects.create(
+            channel=self.channel,
+            user=self.other_user,
+            role=ChannelMembership.Role.MEMBER,
+        )
+
         self.channels_url = reverse("channels")
 
         self.channel_detail_url = reverse(
@@ -3150,4 +3163,622 @@ class ChannelEditDeleteTests(APITestCase):
         self.assertEqual(
             delete_response.status_code,
             status.HTTP_401_UNAUTHORIZED,
+        )
+
+
+class ChannelMembershipPermissionTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="channel-member-owner@example.com",
+            username="channel_member_owner",
+            name="Channel Member Owner",
+            password="StrongPassword123",
+        )
+
+        self.admin = User.objects.create_user(
+            email="channel-member-admin@example.com",
+            username="channel_member_admin",
+            name="Channel Member Admin",
+            password="StrongPassword123",
+        )
+
+        self.second_admin = User.objects.create_user(
+            email="channel-member-admin-2@example.com",
+            username="channel_member_admin_2",
+            name="Second Channel Admin",
+            password="StrongPassword123",
+        )
+
+        self.member = User.objects.create_user(
+            email="channel-member@example.com",
+            username="channel_member",
+            name="Channel Member",
+            password="StrongPassword123",
+        )
+
+        self.second_member = User.objects.create_user(
+            email="channel-member-2@example.com",
+            username="channel_member_2",
+            name="Second Channel Member",
+            password="StrongPassword123",
+        )
+
+        self.outsider = User.objects.create_user(
+            email="channel-outsider@example.com",
+            username="channel_outsider",
+            name="Channel Outsider",
+            password="StrongPassword123",
+        )
+
+        self.channel = Channel.objects.create(
+            name="Membership Channel",
+            description="Channel membership tests",
+            creator=self.owner,
+        )
+
+        self.owner_membership = (
+            ChannelMembership.objects.create(
+                channel=self.channel,
+                user=self.owner,
+                role=ChannelMembership.Role.OWNER,
+            )
+        )
+
+        self.admin_membership = (
+            ChannelMembership.objects.create(
+                channel=self.channel,
+                user=self.admin,
+                role=ChannelMembership.Role.ADMIN,
+            )
+        )
+
+        self.second_admin_membership = (
+            ChannelMembership.objects.create(
+                channel=self.channel,
+                user=self.second_admin,
+                role=ChannelMembership.Role.ADMIN,
+            )
+        )
+
+        self.member_membership = (
+            ChannelMembership.objects.create(
+                channel=self.channel,
+                user=self.member,
+                role=ChannelMembership.Role.MEMBER,
+            )
+        )
+
+        self.second_member_membership = (
+            ChannelMembership.objects.create(
+                channel=self.channel,
+                user=self.second_member,
+                role=ChannelMembership.Role.MEMBER,
+            )
+        )
+
+        self.channels_url = reverse(
+            "channels"
+        )
+
+        self.channel_detail_url = reverse(
+            "channel-detail",
+            kwargs={
+                "channel_id": self.channel.public_id,
+            },
+        )
+
+        self.members_url = reverse(
+            "channel-members",
+            kwargs={
+                "channel_id": self.channel.public_id,
+            },
+        )
+
+        self.leave_url = reverse(
+            "channel-leave",
+            kwargs={
+                "channel_id": self.channel.public_id,
+            },
+        )
+
+        self.topics_url = reverse(
+            "channel-topics",
+            kwargs={
+                "channel_id": self.channel.public_id,
+            },
+        )
+
+    def member_detail_url(self, user):
+        return reverse(
+            "channel-member-detail",
+            kwargs={
+                "channel_id": self.channel.public_id,
+                "user_id": user.public_id,
+            },
+        )
+
+    def create_custom_role(
+        self,
+        name,
+        permissions,
+    ):
+        return AccessRole.objects.create(
+            channel=self.channel,
+            name=name,
+            permissions=permissions,
+            created_by=self.owner,
+        )
+
+    def test_creating_channel_creates_owner_membership(self):
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.post(
+            self.channels_url,
+            {
+                "name": "New Membership Channel",
+                "description": "Created through API",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        channel = Channel.objects.get(
+            public_id=response.data["data"]["id"]
+        )
+
+        self.assertTrue(
+            ChannelMembership.objects.filter(
+                channel=channel,
+                user=self.outsider,
+                role=ChannelMembership.Role.OWNER,
+            ).exists()
+        )
+
+    def test_channel_list_only_contains_joined_channels(self):
+        hidden_channel = Channel.objects.create(
+            name="Hidden Channel",
+            creator=self.outsider,
+        )
+
+        ChannelMembership.objects.create(
+            channel=hidden_channel,
+            user=self.outsider,
+            role=ChannelMembership.Role.OWNER,
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.get(
+            self.channels_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        channel_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertIn(
+            self.channel.public_id,
+            channel_ids,
+        )
+
+        self.assertNotIn(
+            hidden_channel.public_id,
+            channel_ids,
+        )
+
+    def test_outsider_cannot_view_channel_detail(self):
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.get(
+            self.channel_detail_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_member_can_list_channel_members(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.get(
+            self.members_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        user_ids = {
+            item["user_id"]
+            for item in response.data["data"]
+        }
+
+        self.assertEqual(
+            user_ids,
+            {
+                self.owner.public_id,
+                self.admin.public_id,
+                self.second_admin.public_id,
+                self.member.public_id,
+                self.second_member.public_id,
+            },
+        )
+
+    def test_outsider_cannot_list_channel_members(self):
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.get(
+            self.members_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_owner_can_add_member(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.post(
+            self.members_url,
+            {
+                "user_id": self.outsider.public_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        self.assertTrue(
+            ChannelMembership.objects.filter(
+                channel=self.channel,
+                user=self.outsider,
+                role=ChannelMembership.Role.MEMBER,
+            ).exists()
+        )
+
+    def test_duplicate_channel_member_is_rejected(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.post(
+            self.members_url,
+            {
+                "user_id": self.member.public_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_409_CONFLICT,
+        )
+
+    def test_regular_member_cannot_add_member(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            self.members_url,
+            {
+                "user_id": self.outsider.public_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_owner_can_promote_member_to_admin(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.patch(
+            self.member_detail_url(
+                self.member
+            ),
+            {
+                "role": ChannelMembership.Role.ADMIN,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.member_membership.refresh_from_db()
+
+        self.assertEqual(
+            self.member_membership.role,
+            ChannelMembership.Role.ADMIN,
+        )
+
+    def test_non_owner_cannot_change_builtin_role(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.patch(
+            self.member_detail_url(
+                self.second_member
+            ),
+            {
+                "role": ChannelMembership.Role.ADMIN,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_admin_can_remove_regular_member(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.delete(
+            self.member_detail_url(
+                self.member
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.assertFalse(
+            ChannelMembership.objects.filter(
+                channel=self.channel,
+                user=self.member,
+            ).exists()
+        )
+
+    def test_admin_cannot_remove_another_admin(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.delete(
+            self.member_detail_url(
+                self.second_admin
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertTrue(
+            ChannelMembership.objects.filter(
+                channel=self.channel,
+                user=self.second_admin,
+            ).exists()
+        )
+
+    def test_owner_can_remove_admin(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.member_detail_url(
+                self.admin
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.assertFalse(
+            ChannelMembership.objects.filter(
+                channel=self.channel,
+                user=self.admin,
+            ).exists()
+        )
+
+    def test_owner_cannot_be_removed(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.member_detail_url(
+                self.owner
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertTrue(
+            ChannelMembership.objects.filter(
+                channel=self.channel,
+                user=self.owner,
+                role=ChannelMembership.Role.OWNER,
+            ).exists()
+        )
+
+    def test_regular_member_can_leave_channel(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.delete(
+            self.leave_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.assertFalse(
+            ChannelMembership.objects.filter(
+                channel=self.channel,
+                user=self.member,
+            ).exists()
+        )
+
+    def test_owner_cannot_leave_channel(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.leave_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_409_CONFLICT,
+        )
+
+    def test_admin_can_update_channel(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.patch(
+            self.channel_detail_url,
+            {
+                "name": "Updated By Admin",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.channel.refresh_from_db()
+
+        self.assertEqual(
+            self.channel.name,
+            "Updated By Admin",
+        )
+
+    def test_admin_can_create_topic(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.post(
+            self.topics_url,
+            {
+                "name": "Admin Topic",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+    def test_custom_manage_channel_permission_allows_update(self):
+        role = self.create_custom_role(
+            "Channel Manager",
+            [
+                AccessPermission.MANAGE_CHANNEL,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            role
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.patch(
+            self.channel_detail_url,
+            {
+                "description": "Updated by custom role",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.channel.refresh_from_db()
+
+        self.assertEqual(
+            self.channel.description,
+            "Updated by custom role",
+        )
+
+    def test_custom_manage_topics_permission_allows_topic_creation(self):
+        role = self.create_custom_role(
+            "Topic Manager",
+            [
+                AccessPermission.MANAGE_TOPICS,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            role
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            self.topics_url,
+            {
+                "name": "Custom Role Topic",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
         )
