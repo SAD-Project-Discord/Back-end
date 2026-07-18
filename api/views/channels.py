@@ -8,16 +8,19 @@ from api.serializers import (
     CreateTopicSerializer,
     TopicSerializer,
     UpdateTopicSerializer,
+    UpdateChannelSerializer,
 )
 from api.services.channels import (
     ChannelServiceError,
     create_channel,
     create_topic,
+    delete_channel,
     delete_topic,
     get_channel,
     get_channel_topic,
     list_channel_topics,
     list_channels,
+    update_channel,
     update_topic,
 )
 from api.utils.responses import (
@@ -71,17 +74,54 @@ def channel_list_create(request):
     )
 
 
-@api_view(["GET"])
+@api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def channel_detail(request, channel_id):
+    if request.method == "GET":
+        try:
+            channel = get_channel(channel_id)
+        except ChannelServiceError as exc:
+            return _handle_service_error(exc)
+
+        return success_response(
+            ChannelSerializer(channel).data
+        )
+
+    if request.method == "PATCH":
+        serializer = UpdateChannelSerializer(
+            data=request.data
+        )
+
+        if not serializer.is_valid():
+            return error_response(
+                "VALIDATION_ERROR",
+                "اطلاعات ارسالی نامعتبر است.",
+                status.HTTP_400_BAD_REQUEST,
+                serializer.errors,
+            )
+
+        try:
+            channel = update_channel(
+                channel_id,
+                request.user,
+                serializer.validated_data,
+            )
+        except ChannelServiceError as exc:
+            return _handle_service_error(exc)
+
+        return success_response(
+            ChannelSerializer(channel).data
+        )
+
     try:
-        channel = get_channel(channel_id)
+        delete_channel(
+            channel_id,
+            request.user,
+        )
     except ChannelServiceError as exc:
         return _handle_service_error(exc)
 
-    return success_response(
-        ChannelSerializer(channel).data
-    )
+    return no_content_response()
 
 
 @api_view(["GET", "POST"])
