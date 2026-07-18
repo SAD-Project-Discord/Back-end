@@ -42,7 +42,9 @@ def _handle_service_error(exc):
 @permission_classes([IsAuthenticated])
 def channel_list_create(request):
     if request.method == "GET":
-        channels = list_channels()
+        channels = list_channels(
+            request.user
+        )
 
         return success_response(
             ChannelSerializer(
@@ -79,7 +81,10 @@ def channel_list_create(request):
 def channel_detail(request, channel_id):
     if request.method == "GET":
         try:
-            channel = get_channel(channel_id)
+            channel = get_channel(
+                channel_id,
+                request.user,
+            )
         except ChannelServiceError as exc:
             return _handle_service_error(exc)
 
@@ -129,7 +134,10 @@ def channel_detail(request, channel_id):
 def channel_topic_list_create(request, channel_id):
     if request.method == "GET":
         try:
-            topics = list_channel_topics(channel_id)
+            topics = list_channel_topics(
+                channel_id,
+                request.user,
+            )
         except ChannelServiceError as exc:
             return _handle_service_error(exc)
 
@@ -179,6 +187,7 @@ def channel_topic_detail(
             topic = get_channel_topic(
                 channel_id,
                 topic_id,
+                request.user,
             )
         except ChannelServiceError as exc:
             return _handle_service_error(exc)

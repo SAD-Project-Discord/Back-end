@@ -1,6 +1,14 @@
 from django.db import transaction
 
-from api.models import Channel, Topic
+from api.models import (
+    AccessPermission,
+    Channel,
+    ChannelMembership,
+    Topic,
+)
+from api.services.access_control import (
+    has_channel_permission,
+)
 
 
 class ChannelServiceError(Exception):
@@ -52,18 +60,60 @@ def _get_topic_or_404(channel, topic_id):
         ) from exc
 
 
-def _require_channel_creator(channel, user):
-    if channel.creator_id != user.id:
+def _require_channel_member(
+    channel,
+    user,
+):
+    if not ChannelMembership.objects.filter(
+        channel=channel,
+        user=user,
+    ).exists():
         raise ChannelServiceError(
             "FORBIDDEN",
-            "فقط سازنده کانال اجازه انجام این عملیات را دارد.",
+            "شما عضو این کانال نیستید.",
+            403,
+        )
+
+
+def _require_channel_permission(
+    channel,
+    user,
+    permission,
+    message,
+):
+    if not has_channel_permission(
+        channel,
+        user,
+        permission,
+    ):
+        raise ChannelServiceError(
+            "FORBIDDEN",
+            message,
+            403,
+        )
+
+
+def _require_channel_owner(
+    channel,
+    user,
+):
+    is_owner = ChannelMembership.objects.filter(
+        channel=channel,
+        user=user,
+        role=ChannelMembership.Role.OWNER,
+    ).exists()
+
+    if not is_owner:
+        raise ChannelServiceError(
+            "FORBIDDEN",
+            "فقط مالک کانال اجازه حذف آن را دارد.",
             403,
         )
 
 
 @transaction.atomic
 def create_channel(creator, data):
-    return Channel.objects.create(
+    channel = Channel.objects.create(
         name=data["name"].strip(),
         description=data.get(
             "description",
@@ -72,17 +122,41 @@ def create_channel(creator, data):
         creator=creator,
     )
 
+    ChannelMembership.objects.create(
+        channel=channel,
+        user=creator,
+        role=ChannelMembership.Role.OWNER,
+    )
 
-def list_channels():
+    return channel
+
+
+def list_channels(user):
     return (
         Channel.objects.active()
+        .filter(
+            memberships__user=user,
+        )
         .select_related("creator")
+        .distinct()
         .order_by("-created_at")
     )
 
 
-def get_channel(channel_id):
-    return _get_channel_or_404(channel_id)
+def get_channel(
+    channel_id,
+    requester,
+):
+    channel = _get_channel_or_404(
+        channel_id
+    )
+
+    _require_channel_member(
+        channel,
+        requester,
+    )
+
+    return channel
 
 
 @transaction.atomic
@@ -93,9 +167,11 @@ def update_channel(
 ):
     channel = _get_channel_or_404(channel_id)
 
-    _require_channel_creator(
+    _require_channel_permission(
         channel,
         requester,
+        AccessPermission.MANAGE_CHANNEL,
+        "شما اجازه ویرایش این کانال را ندارید.",
     )
 
     update_fields = []
@@ -126,7 +202,7 @@ def delete_channel(
 ):
     channel = _get_channel_or_404(channel_id)
 
-    _require_channel_creator(
+    _require_channel_owner(
         channel,
         requester,
     )
@@ -143,9 +219,11 @@ def create_topic(
     data,
 ):
     channel = _get_channel_or_404(channel_id)
-    _require_channel_creator(
+    _require_channel_permission(
         channel,
         creator,
+        AccessPermission.MANAGE_TOPICS,
+        "شما اجازه مدیریت موضوعات این کانال را ندارید.",
     )
 
     name = data["name"].strip()
@@ -173,8 +251,18 @@ def create_topic(
     )
 
 
-def list_channel_topics(channel_id):
-    channel = _get_channel_or_404(channel_id)
+def list_channel_topics(
+    channel_id,
+    requester,
+):
+    channel = _get_channel_or_404(
+        channel_id
+    )
+
+    _require_channel_member(
+        channel,
+        requester,
+    )
 
     return (
         Topic.objects.active()
@@ -190,8 +278,16 @@ def list_channel_topics(channel_id):
 def get_channel_topic(
     channel_id,
     topic_id,
+    requester,
 ):
-    channel = _get_channel_or_404(channel_id)
+    channel = _get_channel_or_404(
+        channel_id
+    )
+
+    _require_channel_member(
+        channel,
+        requester,
+    )
 
     return _get_topic_or_404(
         channel,
@@ -207,9 +303,11 @@ def update_topic(
     data,
 ):
     channel = _get_channel_or_404(channel_id)
-    _require_channel_creator(
+    _require_channel_permission(
         channel,
         requester,
+        AccessPermission.MANAGE_TOPICS,
+        "شما اجازه مدیریت موضوعات این کانال را ندارید.",
     )
 
     topic = _get_topic_or_404(
@@ -264,9 +362,11 @@ def delete_topic(
     requester,
 ):
     channel = _get_channel_or_404(channel_id)
-    _require_channel_creator(
+    _require_channel_permission(
         channel,
         requester,
+        AccessPermission.MANAGE_TOPICS,
+        "شما اجازه مدیریت موضوعات این کانال را ندارید.",
     )
 
     topic = _get_topic_or_404(
