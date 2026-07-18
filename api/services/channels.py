@@ -86,6 +86,57 @@ def get_channel(channel_id):
 
 
 @transaction.atomic
+def update_channel(
+    channel_id,
+    requester,
+    data,
+):
+    channel = _get_channel_or_404(channel_id)
+
+    _require_channel_creator(
+        channel,
+        requester,
+    )
+
+    update_fields = []
+
+    if "name" in data:
+        channel.name = data["name"].strip()
+        update_fields.append("name")
+
+    if "description" in data:
+        channel.description = data[
+            "description"
+        ].strip()
+        update_fields.append("description")
+
+    update_fields.append("updated_at")
+
+    channel.save(
+        update_fields=update_fields
+    )
+
+    return channel
+
+
+@transaction.atomic
+def delete_channel(
+    channel_id,
+    requester,
+):
+    channel = _get_channel_or_404(channel_id)
+
+    _require_channel_creator(
+        channel,
+        requester,
+    )
+
+    channel.soft_delete()
+
+    return channel
+
+
+@transaction.atomic
 def create_topic(
     channel_id,
     creator,
