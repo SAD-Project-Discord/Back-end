@@ -5,6 +5,7 @@ from api.models import (
     AccessRole,
     AuthSession,
     Channel,
+    ChannelMembership,
     Group,
     GroupInvitation,
     GroupMembership,
@@ -532,3 +533,63 @@ class UpdateAccessRoleSerializer(serializers.Serializer):
 
 class AssignAccessRoleSerializer(serializers.Serializer):
     role_id = serializers.CharField()
+
+
+class ChannelMembershipSerializer(
+    serializers.ModelSerializer
+):
+    user_id = serializers.CharField(
+        source="user.public_id",
+        read_only=True,
+    )
+    username = serializers.CharField(
+        source="user.username",
+        read_only=True,
+    )
+    name = serializers.CharField(
+        source="user.name",
+        read_only=True,
+    )
+    custom_roles = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ChannelMembership
+        fields = [
+            "user_id",
+            "username",
+            "name",
+            "role",
+            "custom_roles",
+            "joined_at",
+        ]
+
+    def get_custom_roles(self, obj):
+        roles = obj.custom_roles.filter(
+            deleted_at__isnull=True,
+        ).order_by("created_at")
+
+        return [
+            {
+                "id": role.public_id,
+                "name": role.name,
+                "permissions": role.permissions,
+            }
+            for role in roles
+        ]
+
+
+class AddChannelMemberSerializer(
+    serializers.Serializer
+):
+    user_id = serializers.CharField()
+
+
+class UpdateChannelMemberRoleSerializer(
+    serializers.Serializer
+):
+    role = serializers.ChoiceField(
+        choices=[
+            ChannelMembership.Role.ADMIN,
+            ChannelMembership.Role.MEMBER,
+        ]
+    )

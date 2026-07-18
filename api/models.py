@@ -513,6 +513,12 @@ class Channel(models.Model):
         on_delete=models.CASCADE,
         related_name="created_channels",
     )
+    members = models.ManyToManyField(
+        User,
+        through="ChannelMembership",
+        related_name="joined_channels",
+        blank=True,
+    )
     deleted_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -562,6 +568,58 @@ class Channel(models.Model):
                 public_id=public_id
             ).exists():
                 return public_id
+
+
+class ChannelMembership(models.Model):
+    class Role(models.TextChoices):
+        OWNER = "owner", "Owner"
+        ADMIN = "admin", "Admin"
+        MEMBER = "member", "Member"
+
+    channel = models.ForeignKey(
+        Channel,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="channel_memberships",
+    )
+    role = models.CharField(
+        max_length=16,
+        choices=Role.choices,
+        default=Role.MEMBER,
+    )
+    custom_roles = models.ManyToManyField(
+        "AccessRole",
+        related_name="channel_memberships",
+        blank=True,
+    )
+    joined_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    class Meta:
+        db_table = "channel_memberships"
+        ordering = ["joined_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["channel", "user"],
+                name="unique_channel_membership",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["channel", "role"],
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.user.username} - "
+            f"{self.channel.name} ({self.role})"
+        )
 
 
 class TopicQuerySet(models.QuerySet):
