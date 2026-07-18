@@ -2896,3 +2896,258 @@ class RoleCustomizationAccessControlTests(APITestCase):
             create_response.status_code,
             status.HTTP_401_UNAUTHORIZED,
         )
+
+
+class ChannelEditDeleteTests(APITestCase):
+    def setUp(self):
+        self.creator = User.objects.create_user(
+            email="channel-edit-creator@example.com",
+            username="channel_edit_creator",
+            name="Channel Edit Creator",
+            password="StrongPassword123",
+        )
+
+        self.other_user = User.objects.create_user(
+            email="channel-edit-other@example.com",
+            username="channel_edit_other",
+            name="Channel Edit Other",
+            password="StrongPassword123",
+        )
+
+        self.channel = Channel.objects.create(
+            name="Original Channel",
+            description="Original description",
+            creator=self.creator,
+        )
+
+        self.channel_detail_url = reverse(
+            "channel-detail",
+            kwargs={
+                "channel_id": self.channel.public_id,
+            },
+        )
+
+        self.channels_url = reverse(
+            "channels"
+        )
+
+        self.topics_url = reverse(
+            "channel-topics",
+            kwargs={
+                "channel_id": self.channel.public_id,
+            },
+        )
+
+    def test_creator_can_update_channel(self):
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        response = self.client.patch(
+            self.channel_detail_url,
+            {
+                "name": "Updated Channel",
+                "description": "Updated description",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.channel.refresh_from_db()
+
+        self.assertEqual(
+            self.channel.name,
+            "Updated Channel",
+        )
+
+        self.assertEqual(
+            self.channel.description,
+            "Updated description",
+        )
+
+        self.assertEqual(
+            response.data["data"]["name"],
+            "Updated Channel",
+        )
+
+    def test_non_creator_cannot_update_channel(self):
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.patch(
+            self.channel_detail_url,
+            {
+                "name": "Unauthorized Update",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "FORBIDDEN",
+        )
+
+        self.channel.refresh_from_db()
+
+        self.assertEqual(
+            self.channel.name,
+            "Original Channel",
+        )
+
+    def test_empty_channel_update_is_rejected(self):
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        response = self.client.patch(
+            self.channel_detail_url,
+            {},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(
+            response.data["error"]["code"],
+            "VALIDATION_ERROR",
+        )
+
+    def test_creator_can_soft_delete_channel(self):
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        response = self.client.delete(
+            self.channel_detail_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.channel.refresh_from_db()
+
+        self.assertIsNotNone(
+            self.channel.deleted_at
+        )
+
+        self.assertFalse(
+            Channel.objects.active().filter(
+                pk=self.channel.pk
+            ).exists()
+        )
+
+    def test_non_creator_cannot_delete_channel(self):
+        self.client.force_authenticate(
+            user=self.other_user
+        )
+
+        response = self.client.delete(
+            self.channel_detail_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.channel.refresh_from_db()
+
+        self.assertIsNone(
+            self.channel.deleted_at
+        )
+
+    def test_deleted_channel_is_hidden_from_list_and_detail(self):
+        self.channel.soft_delete()
+
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        list_response = self.client.get(
+            self.channels_url
+        )
+
+        channel_ids = {
+            item["id"]
+            for item in list_response.data["data"]
+        }
+
+        self.assertNotIn(
+            self.channel.public_id,
+            channel_ids,
+        )
+
+        detail_response = self.client.get(
+            self.channel_detail_url
+        )
+
+        self.assertEqual(
+            detail_response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+    def test_topics_of_deleted_channel_are_not_accessible(self):
+        topic = Topic.objects.create(
+            channel=self.channel,
+            name="Hidden Topic",
+            creator=self.creator,
+        )
+
+        self.channel.soft_delete()
+
+        self.client.force_authenticate(
+            user=self.creator
+        )
+
+        response = self.client.get(
+            self.topics_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        self.assertFalse(
+            Topic.objects.active().filter(
+                pk=topic.pk
+            ).exists()
+        )
+
+    def test_unauthenticated_user_cannot_update_or_delete_channel(self):
+        update_response = self.client.patch(
+            self.channel_detail_url,
+            {
+                "name": "Anonymous Update",
+            },
+            format="json",
+        )
+
+        delete_response = self.client.delete(
+            self.channel_detail_url
+        )
+
+        self.assertEqual(
+            update_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
+
+        self.assertEqual(
+            delete_response.status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
