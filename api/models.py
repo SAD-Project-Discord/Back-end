@@ -900,3 +900,26 @@ class ScheduledMessage(models.Model):
             public_id = f"sch_{secrets.token_hex(6)}"
             if not ScheduledMessage.objects.filter(public_id=public_id).exists():
                 return public_id
+
+
+class UserPrivacySetting(models.Model):
+    class GroupAddPermission(models.TextChoices):
+        EVERYONE = "everyone", "Everyone"
+        CONTACTS = "contacts", "Contacts"
+        NOBODY = "nobody", "Nobody"
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="privacy_setting")
+    group_add_permission = models.CharField(
+        max_length=16,
+        choices=GroupAddPermission.choices,
+        default=GroupAddPermission.EVERYONE,
+    )
+    allow_direct_add = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "user_privacy_settings"
+
+    def __str__(self):
+        return f"{self.user.username} privacy ({self.group_add_permission})"
