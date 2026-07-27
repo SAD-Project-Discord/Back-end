@@ -1,7 +1,8 @@
 from django.db import models
+from django.utils.dateparse import parse_datetime
 
 from api.constants import user_room_name
-from api.models import Message, User
+from api.models import ChannelMembership, GroupMembership, Message, User
 from api.serializers import message_to_dict
 from api.tasks import broadcast_message_event_task
 
@@ -189,6 +190,84 @@ def search_messages(current_user, query, limit=20):
     )
     messages, has_more = _paginate_messages(queryset, limit)
     return messages, has_more, {"page": 1, "limit": limit, "total": len(messages), "total_pages": 1}
+
+
+def global_search_messages(
+    current_user,
+    query,
+    message_type=None,
+    from_user_id=None,
+    date_from=None,
+    date_to=None,
+    limit=20,
+    before=None,
+):
+    if not query or not query.strip():
+        raise MessageServiceError("VALIDATION_ERROR", "عبارت جستجو نمی‌تواند خالی باشد.", 400)
+
+    query = query.strip()
+    queryset = Message.objects.active().filter(content__icontains=query)
+
+    user_group_ids = list(
+        GroupMembership.objects.filter(
+            user=current_user,
+            group__deleted_at__isnull=True,
+        ).values_list("group__public_id", flat=True)
+    )
+
+    user_channel_ids = list(
+        ChannelMembership.objects.filter(
+            user=current_user,
+            channel__deleted_at__isnull=True,
+        ).values_list("channel__public_id", flat=True)
+    )
+
+    access_condition = (
+        (
+            models.Q(message_type=Message.MessageType.DIRECT)
+            & (models.Q(user=current_user) | models.Q(receiver=current_user))
+        )
+        | (
+            models.Q(message_type=Message.MessageType.GROUP)
+            & models.Q(group_id__in=user_group_ids)
+        )
+        | (
+            models.Q(message_type=Message.MessageType.CHANNEL)
+            & models.Q(channel_id__in=user_channel_ids)
+        )
+    )
+    queryset = queryset.filter(access_condition)
+
+    if message_type:
+        if message_type not in Message.MessageType.values:
+            raise MessageServiceError("VALIDATION_ERROR", "نوع پیام نامعتبر است.", 400)
+        queryset = queryset.filter(message_type=message_type)
+
+    if from_user_id:
+        try:
+            sender = User.objects.get(public_id=from_user_id, deleted_at__isnull=True)
+            queryset = queryset.filter(user=sender)
+        except User.DoesNotExist:
+            queryset = queryset.none()
+
+    if date_from:
+        dt_from = parse_datetime(date_from)
+        if dt_from:
+            queryset = queryset.filter(created_at__gte=dt_from)
+
+    if date_to:
+        dt_to = parse_datetime(date_to)
+        if dt_to:
+            queryset = queryset.filter(created_at__lte=dt_to)
+
+    messages_list, has_more = _paginate_messages(queryset, limit, before)
+    meta = {
+        "limit": int(limit),
+        "has_more": has_more,
+        "total": len(messages_list),
+        "query": query,
+    }
+    return messages_list, has_more, meta
 
 
 def _paginate_messages(queryset, limit, before=None):
