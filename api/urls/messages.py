@@ -1,6 +1,6 @@
 from django.urls import path
 
-from api.views import messages, scheduled_messages
+from api.views import messages, scheduled_messages, stickers
 
 urlpatterns = [
     path("", messages.messages, name="messages"),
@@ -15,4 +15,6 @@ urlpatterns = [
     path("channels/<str:channel_id>", messages.channel_messages, name="messages-channels"),
     path("channels/<str:channel_id>/search/", messages.search_channel_messages_view, name="messages-channels-search"),
     path("<str:message_id>", messages.message_detail, name="message-detail"),
+    path("<str:message_id>/reactions/", stickers.add_reaction_view, name="message-reactions-add"),
+    path("<str:message_id>/reactions/<str:reaction_id>/", stickers.remove_reaction_view, name="message-reactions-remove"),
 ]

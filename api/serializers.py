@@ -10,7 +10,10 @@ from api.models import (
     GroupInvitation,
     GroupMembership,
     Message,
+    MessageReaction,
     ScheduledMessage,
+    Sticker,
+    StickerPack,
     Topic,
     User,
     UserPrivacySetting,
@@ -648,3 +651,30 @@ class UserPrivacySettingSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserPrivacySetting
         fields = ["group_add_permission", "allow_direct_add", "updated_at"]
+
+
+class StickerSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="public_id", read_only=True)
+
+    class Meta:
+        model = Sticker
+        fields = ["id", "emoji_alias", "image_url", "created_at"]
+
+
+class StickerPackSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="public_id", read_only=True)
+    stickers = StickerSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = StickerPack
+        fields = ["id", "name", "description", "icon_url", "is_official", "stickers", "created_at"]
+
+
+class MessageReactionSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="public_id", read_only=True)
+    user_id = serializers.CharField(source="user.public_id", read_only=True)
+    sticker_id = serializers.CharField(source="sticker.public_id", read_only=True, allow_null=True)
+
+    class Meta:
+        model = MessageReaction
+        fields = ["id", "user_id", "emoji", "sticker_id", "created_at"]
