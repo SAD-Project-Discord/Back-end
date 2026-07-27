@@ -13,6 +13,7 @@ from api.models import (
     ScheduledMessage,
     Topic,
     User,
+    UserPrivacySetting,
 )
 
 class UserSerializer(serializers.ModelSerializer):
@@ -635,3 +636,15 @@ class UpdateChannelMemberRoleSerializer(
             ChannelMembership.Role.MEMBER,
         ]
     )
+
+
+class UserPrivacySettingSerializer(serializers.ModelSerializer):
+    group_add_permission = serializers.ChoiceField(
+        choices=UserPrivacySetting.GroupAddPermission.choices,
+        required=False,
+    )
+    allow_direct_add = serializers.BooleanField(required=False)
+
+    class Meta:
+        model = UserPrivacySetting
+        fields = ["group_add_permission", "allow_direct_add", "updated_at"]
