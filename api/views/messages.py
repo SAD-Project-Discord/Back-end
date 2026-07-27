@@ -12,6 +12,9 @@ from api.services.messages import (
     list_channel_messages,
     list_direct_messages,
     list_group_messages,
+    search_channel_messages,
+    search_direct_messages,
+    search_group_messages,
     search_messages,
     update_message,
 )
@@ -157,3 +160,55 @@ def message_detail(request, message_id):
     except MessageServiceError as exc:
         return _handle_service_error(exc)
     return no_content_response()
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def search_direct_messages_view(request, user_id):
+    query = request.query_params.get("q", "")
+    limit = request.query_params.get("limit", 20)
+    before = request.query_params.get("before")
+    try:
+        messages_list, has_more = search_direct_messages(request.user, user_id, query, limit, before)
+    except MessageServiceError as exc:
+        return _handle_service_error(exc)
+
+    return success_response(
+        MessageSerializer(messages_list, many=True).data,
+        meta={"limit": int(limit), "has_more": has_more},
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def search_group_messages_view(request, group_id):
+    query = request.query_params.get("q", "")
+    limit = request.query_params.get("limit", 20)
+    before = request.query_params.get("before")
+    try:
+        messages_list, has_more = search_group_messages(request.user, group_id, query, limit, before)
+    except MessageServiceError as exc:
+        return _handle_service_error(exc)
+
+    return success_response(
+        MessageSerializer(messages_list, many=True).data,
+        meta={"limit": int(limit), "has_more": has_more},
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def search_channel_messages_view(request, channel_id):
+    query = request.query_params.get("q", "")
+    limit = request.query_params.get("limit", 20)
+    before = request.query_params.get("before")
+    topic_id = request.query_params.get("topic_id")
+    try:
+        messages_list, has_more = search_channel_messages(request.user, channel_id, topic_id, query, limit, before)
+    except MessageServiceError as exc:
+        return _handle_service_error(exc)
+
+    return success_response(
+        MessageSerializer(messages_list, many=True).data,
+        meta={"limit": int(limit), "has_more": has_more},
+    )
