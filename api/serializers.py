@@ -10,6 +10,7 @@ from api.models import (
     GroupInvitation,
     GroupMembership,
     Message,
+    ScheduledMessage,
     Topic,
     User,
 )
@@ -111,6 +112,47 @@ class SendMessageSerializer(serializers.Serializer):
 
 class EditMessageSerializer(serializers.Serializer):
     content = serializers.CharField()
+
+
+def scheduled_message_to_dict(scheduled_msg):
+    return {
+        "id": scheduled_msg.public_id,
+        "sender_id": scheduled_msg.user.public_id,
+        "receiver_id": scheduled_msg.receiver.public_id if scheduled_msg.receiver else None,
+        "group_id": scheduled_msg.group_id or None,
+        "channel_id": scheduled_msg.channel_id or None,
+        "topic_id": scheduled_msg.topic_id or None,
+        "content": scheduled_msg.content,
+        "reply_to_id": scheduled_msg.reply_to.public_id if scheduled_msg.reply_to else None,
+        "file_url": scheduled_msg.file_url,
+        "media": scheduled_msg.media or [],
+        "scheduled_at": scheduled_msg.scheduled_at.isoformat().replace("+00:00", "Z"),
+        "status": scheduled_msg.status,
+        "sent_message_id": scheduled_msg.sent_message.public_id if scheduled_msg.sent_message else None,
+        "created_at": scheduled_msg.created_at.isoformat().replace("+00:00", "Z"),
+        "updated_at": scheduled_msg.updated_at.isoformat().replace("+00:00", "Z"),
+    }
+
+
+class ScheduledMessageSerializer(serializers.Serializer):
+    def to_representation(self, instance):
+        return scheduled_message_to_dict(instance)
+
+
+class CreateScheduledMessageSerializer(serializers.Serializer):
+    receiver_id = serializers.CharField(required=False, allow_blank=True)
+    group_id = serializers.CharField(required=False, allow_blank=True)
+    channel_id = serializers.CharField(required=False, allow_blank=True)
+    topic_id = serializers.CharField(required=False, allow_blank=True)
+    content = serializers.CharField(required=False, allow_blank=True)
+    reply_to_id = serializers.CharField(required=False, allow_blank=True)
+    file_url = serializers.URLField(required=False, allow_blank=True)
+    media_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_empty=True,
+    )
+    scheduled_at = serializers.DateTimeField()
 
 
 class PublicUserProfileSerializer(serializers.ModelSerializer):
