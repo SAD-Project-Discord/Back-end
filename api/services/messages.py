@@ -294,3 +294,36 @@ def broadcast_typing(user, room_name, is_typing):
         room_name,
         {"user_id": user.public_id, "is_typing": is_typing, "room": room_name},
     )
+
+
+def search_direct_messages(current_user, other_user_id, query, limit=20, before=None):
+    if not query or not query.strip():
+        raise MessageServiceError("VALIDATION_ERROR", "عبارت جستجو نمی‌تواند خالی باشد.", 400)
+    other_user = _get_user_or_404(other_user_id)
+    queryset = Message.objects.for_direct(current_user, other_user).filter(content__icontains=query.strip())
+    messages_list, has_more = _paginate_messages(queryset, limit, before)
+    return messages_list, has_more
+
+
+def search_group_messages(current_user, group_id, query, limit=20, before=None):
+    if not query or not query.strip():
+        raise MessageServiceError("VALIDATION_ERROR", "عبارت جستجو نمی‌تواند خالی باشد.", 400)
+
+    if not GroupMembership.objects.filter(group__public_id=group_id, group__deleted_at__isnull=True, user=current_user).exists():
+        raise MessageServiceError("FORBIDDEN", "شما عضو این گروه نیستید.", 403)
+
+    queryset = Message.objects.for_group(group_id).filter(content__icontains=query.strip())
+    messages_list, has_more = _paginate_messages(queryset, limit, before)
+    return messages_list, has_more
+
+
+def search_channel_messages(current_user, channel_id, topic_id=None, query=None, limit=20, before=None):
+    if not query or not query.strip():
+        raise MessageServiceError("VALIDATION_ERROR", "عبارت جستجو نمی‌تواند خالی باشد.", 400)
+
+    if not ChannelMembership.objects.filter(channel__public_id=channel_id, channel__deleted_at__isnull=True, user=current_user).exists():
+        raise MessageServiceError("FORBIDDEN", "شما عضو این کانال نیستید.", 403)
+
+    queryset = Message.objects.for_channel(channel_id, topic_id).filter(content__icontains=query.strip())
+    messages_list, has_more = _paginate_messages(queryset, limit, before)
+    return messages_list, has_more
