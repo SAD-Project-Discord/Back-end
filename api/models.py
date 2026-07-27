@@ -923,3 +923,85 @@ class UserPrivacySetting(models.Model):
 
     def __str__(self):
         return f"{self.user.username} privacy ({self.group_add_permission})"
+
+
+class StickerPack(models.Model):
+    public_id = models.CharField(max_length=32, unique=True, editable=False)
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True, default="")
+    icon_url = models.URLField(blank=True, default="")
+    is_official = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "sticker_packs"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return self.name
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"spk_{secrets.token_hex(6)}"
+            if not StickerPack.objects.filter(public_id=public_id).exists():
+                return public_id
+
+
+class Sticker(models.Model):
+    public_id = models.CharField(max_length=32, unique=True, editable=False)
+    pack = models.ForeignKey(StickerPack, on_delete=models.CASCADE, related_name="stickers")
+    emoji_alias = models.CharField(max_length=50, blank=True, default="")
+    image_url = models.URLField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "stickers"
+
+    def __str__(self):
+        return f"{self.pack.name} - {self.emoji_alias}"
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"stk_{secrets.token_hex(6)}"
+            if not Sticker.objects.filter(public_id=public_id).exists():
+                return public_id
+
+
+class MessageReaction(models.Model):
+    public_id = models.CharField(max_length=32, unique=True, editable=False)
+    message = models.ForeignKey(Message, on_delete=models.CASCADE, related_name="message_reactions")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user_reactions")
+    emoji = models.CharField(max_length=50, blank=True, default="")
+    sticker = models.ForeignKey(Sticker, on_delete=models.CASCADE, null=True, blank=True, related_name="reactions")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "message_reactions"
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.user.username} -> {self.message.public_id} ({self.emoji or self.sticker})"
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"rct_{secrets.token_hex(6)}"
+            if not MessageReaction.objects.filter(public_id=public_id).exists():
+                return public_id

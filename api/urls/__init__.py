@@ -10,4 +10,5 @@ urlpatterns = [
     path("groups/", include("api.urls.groups")),
     path("channels/", include("api.urls.channels")),
     path("storage/", include("api.urls.storage")),
+    path("stickers/", include("api.urls.stickers")),
 ]
