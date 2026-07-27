@@ -1,9 +1,7 @@
 #!/bin/sh
 set -e
 
-if [ "$DJANGO_ENV" = "production" ]; then
-  python manage.py collectstatic --noinput
-fi
+python manage.py collectstatic --noinput --clear || true
 
 echo "Waiting for database..."
 python - <<'PY'
