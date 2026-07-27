@@ -8,6 +8,7 @@ from api.services.messages import (
     create_message,
     delete_message,
     get_message,
+    global_search_messages,
     list_channel_messages,
     list_direct_messages,
     list_group_messages,
@@ -91,6 +92,34 @@ def search_message_list(request):
 
     messages_list, has_more, meta = search_messages(request.user, query, limit)
     meta["has_more"] = has_more
+    return success_response(MessageSerializer(messages_list, many=True).data, meta=meta)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def global_search_view(request):
+    query = request.query_params.get("q", "").strip()
+    message_type = request.query_params.get("message_type")
+    from_user = request.query_params.get("from_user")
+    date_from = request.query_params.get("date_from")
+    date_to = request.query_params.get("date_to")
+    limit = request.query_params.get("limit", 20)
+    before = request.query_params.get("before")
+
+    try:
+        messages_list, has_more, meta = global_search_messages(
+            request.user,
+            query,
+            message_type=message_type,
+            from_user_id=from_user,
+            date_from=date_from,
+            date_to=date_to,
+            limit=limit,
+            before=before,
+        )
+    except MessageServiceError as exc:
+        return _handle_service_error(exc)
+
     return success_response(MessageSerializer(messages_list, many=True).data, meta=meta)
 
 
