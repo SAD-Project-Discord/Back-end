@@ -829,3 +829,74 @@ class Message(models.Model):
             public_id = f"msg_{secrets.token_hex(6)}"
             if not Message.objects.filter(public_id=public_id).exists():
                 return public_id
+
+
+class ScheduledMessage(models.Model):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        CANCELED = "canceled", "Canceled"
+        FAILED = "failed", "Failed"
+
+    public_id = models.CharField(max_length=32, unique=True, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="scheduled_messages")
+    message_type = models.CharField(
+        max_length=16,
+        choices=Message.MessageType.choices,
+        default=Message.MessageType.CHANNEL,
+    )
+    receiver = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="scheduled_received_messages",
+        null=True,
+        blank=True,
+    )
+    group_id = models.CharField(max_length=32, blank=True, default="")
+    channel_id = models.CharField(max_length=32, blank=True, default="")
+    topic_id = models.CharField(max_length=32, blank=True, default="")
+    reply_to = models.ForeignKey(
+        Message,
+        on_delete=models.SET_NULL,
+        related_name="scheduled_replies",
+        null=True,
+        blank=True,
+    )
+    content = models.TextField(blank=True, default="")
+    file_url = models.URLField(blank=True, default="")
+    media = models.JSONField(default=list, blank=True)
+    scheduled_at = models.DateTimeField(db_index=True)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    sent_message = models.ForeignKey(
+        Message,
+        on_delete=models.SET_NULL,
+        related_name="scheduled_origin",
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "scheduled_messages"
+        ordering = ["scheduled_at"]
+
+    def __str__(self):
+        return f"{self.public_id} ({self.status}) for {self.user.username}"
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"sch_{secrets.token_hex(6)}"
+            if not ScheduledMessage.objects.filter(public_id=public_id).exists():
+                return public_id

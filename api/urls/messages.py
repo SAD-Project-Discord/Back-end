@@ -1,9 +1,11 @@
 from django.urls import path
 
-from api.views import messages
+from api.views import messages, scheduled_messages
 
 urlpatterns = [
     path("", messages.messages, name="messages"),
+    path("scheduled/", scheduled_messages.scheduled_messages_list_create, name="scheduled-messages-list-create"),
+    path("scheduled/<str:scheduled_id>/", scheduled_messages.scheduled_message_detail, name="scheduled-message-detail"),
     path("search", messages.search_message_list, name="messages-search"),
     path("search/global/", messages.global_search_view, name="messages-global-search"),
     path("direct/<str:user_id>", messages.direct_messages, name="messages-direct"),
