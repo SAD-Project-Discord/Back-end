@@ -831,6 +831,110 @@ class Message(models.Model):
                 return public_id
 
 
+class MediaAttachment(models.Model):
+    class MediaType(models.TextChoices):
+        IMAGE = "image", "Image"
+        VIDEO = "video", "Video"
+        AUDIO = "audio", "Audio"
+        DOCUMENT = "document", "Document"
+
+    public_id = models.CharField(
+        max_length=32,
+        unique=True,
+        editable=False,
+    )
+
+    owner = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="media_attachments",
+    )
+
+    message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name="attachments",
+        null=True,
+        blank=True,
+    )
+
+    file_key = models.CharField(
+        max_length=500,
+        unique=True,
+    )
+
+    file_url = models.URLField(
+        max_length=1000,
+    )
+
+    original_name = models.CharField(
+        max_length=255,
+    )
+
+    content_type = models.CharField(
+        max_length=100,
+    )
+
+    size = models.PositiveBigIntegerField()
+
+    media_type = models.CharField(
+        max_length=16,
+        choices=MediaType.choices,
+        db_index=True,
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+    )
+
+    attached_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        db_table = "media_attachments"
+        ordering = ["created_at"]
+        indexes = [
+            models.Index(
+                fields=["owner", "created_at"],
+            ),
+            models.Index(
+                fields=["message", "media_type"],
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.original_name} "
+            f"({self.media_type})"
+        )
+
+    @property
+    def is_attached(self):
+        return self.message_id is not None
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = (
+                self._generate_public_id()
+            )
+
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = (
+                f"med_{secrets.token_hex(6)}"
+            )
+
+            if not MediaAttachment.objects.filter(
+                public_id=public_id
+            ).exists():
+                return public_id
+
+
 class ScheduledMessage(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
