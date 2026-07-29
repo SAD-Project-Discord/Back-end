@@ -75,13 +75,39 @@ def group_messages(request, group_id):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def channel_messages(request, channel_id):
-    limit = request.query_params.get("limit", 50)
-    before = request.query_params.get("before")
-    topic_id = request.query_params.get("topic_id")
-    messages_list, has_more = list_channel_messages(channel_id, topic_id, limit, before)
+    limit = request.query_params.get(
+        "limit",
+        50,
+    )
+    before = request.query_params.get(
+        "before"
+    )
+    topic_id = request.query_params.get(
+        "topic_id"
+    )
+
+    try:
+        messages_list, has_more = (
+            list_channel_messages(
+                request.user,
+                channel_id,
+                topic_id,
+                limit,
+                before,
+            )
+        )
+    except MessageServiceError as exc:
+        return _handle_service_error(exc)
+
     return success_response(
-        MessageSerializer(messages_list, many=True).data,
-        meta={"limit": int(limit), "has_more": has_more},
+        MessageSerializer(
+            messages_list,
+            many=True,
+        ).data,
+        meta={
+            "limit": int(limit),
+            "has_more": has_more,
+        },
     )
 
 

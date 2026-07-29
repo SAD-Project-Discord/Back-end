@@ -2,7 +2,18 @@ from django.db import models
 from django.utils.dateparse import parse_datetime
 
 from api.constants import user_room_name
-from api.models import ChannelMembership, GroupMembership, Message, User
+from api.models import (
+    AccessPermission,
+    Channel,
+    ChannelMembership,
+    GroupMembership,
+    Message,
+    Topic,
+    User,
+)
+from api.services.access_control import (
+    has_channel_permission,
+)
 from api.serializers import message_to_dict
 from api.tasks import broadcast_message_event_task
 
@@ -27,6 +38,69 @@ def _get_message_or_404(public_id):
         return Message.objects.active().get(public_id=public_id)
     except Message.DoesNotExist as exc:
         raise MessageServiceError("NOT_FOUND", "منبع مورد نظر یافت نشد.", 404) from exc
+
+
+def _get_channel_or_404(channel_id):
+    try:
+        return Channel.objects.active().get(
+            public_id=channel_id
+        )
+    except Channel.DoesNotExist as exc:
+        raise MessageServiceError(
+            "NOT_FOUND",
+            "کانال مورد نظر یافت نشد.",
+            404,
+        ) from exc
+
+
+def _get_channel_topic_or_404(
+    channel,
+    topic_id,
+):
+    try:
+        return Topic.objects.active().get(
+            public_id=topic_id,
+            channel=channel,
+        )
+    except Topic.DoesNotExist as exc:
+        raise MessageServiceError(
+            "NOT_FOUND",
+            "موضوع مورد نظر در این کانال یافت نشد.",
+            404,
+        ) from exc
+
+
+def _require_channel_member(
+    channel,
+    user,
+):
+    if not ChannelMembership.objects.filter(
+        channel=channel,
+        user=user,
+    ).exists():
+        raise MessageServiceError(
+            "FORBIDDEN",
+            "شما عضو این کانال نیستید.",
+            403,
+        )
+
+
+def _require_channel_permission(
+    channel,
+    user,
+    permission,
+    message,
+):
+    if not has_channel_permission(
+        channel,
+        user,
+        permission,
+    ):
+        raise MessageServiceError(
+            "FORBIDDEN",
+            message,
+            403,
+        )
 
 
 def _resolve_reply(reply_to_id):
@@ -68,7 +142,30 @@ def create_message(sender, data):
     elif message_type == Message.MessageType.GROUP:
         group_id = data["group_id"]
     else:
-        channel_id = data["channel_id"]
+        channel = _get_channel_or_404(
+            data["channel_id"]
+        )
+
+        _require_channel_member(
+            channel,
+            sender,
+        )
+
+        _require_channel_permission(
+            channel,
+            sender,
+            AccessPermission.SEND_MESSAGES,
+            "شما اجازه ارسال پیام در این کانال را ندارید.",
+        )
+
+        channel_id = channel.public_id
+
+        if topic_id:
+            topic = _get_channel_topic_or_404(
+                channel,
+                topic_id,
+            )
+            topic_id = topic.public_id
 
     media = [{"id": media_id} for media_id in data.get("media_ids", [])]
 
@@ -107,9 +204,18 @@ def list_group_messages(group_id, limit=50, before=None):
     return _paginate_messages(queryset, limit, before)
 
 
-def list_channel_messages(channel_id, topic_id=None, limit=50, before=None):
-    queryset = Message.objects.for_channel(channel_id, topic_id)
-    return _paginate_messages(queryset, limit, before)
+def list_channel_messages(current_user, channel_id, topic_id=None, limit=50, before=None,):
+    channel = _get_channel_or_404(channel_id)
+
+    _require_channel_member(channel, current_user,)
+
+    if topic_id:
+        topic = _get_channel_topic_or_404(channel, topic_id,)
+        topic_id = topic.public_id
+
+    queryset = Message.objects.for_channel(channel.public_id, topic_id,)
+
+    return _paginate_messages(queryset, limit, before,)
 
 
 def get_message(public_id, requester=None):
@@ -129,11 +235,37 @@ def get_message(public_id, requester=None):
             403,
         )
 
+    if (requester is not None and message.message_type == Message.MessageType.CHANNEL):
+        channel = _get_channel_or_404(message.channel_id)
+
+        _require_channel_member(channel, requester,)
+
     return message
 
 
 def update_message(message, editor, content):
-    if message.user_id != editor.id:
+    if (
+        message.message_type
+        == Message.MessageType.CHANNEL
+    ):
+        channel = _get_channel_or_404(
+            message.channel_id
+        )
+
+        _require_channel_member(
+            channel,
+            editor,
+        )
+
+        if message.user_id != editor.id:
+            _require_channel_permission(
+                channel,
+                editor,
+                AccessPermission.EDIT_MESSAGES,
+                "شما اجازه ویرایش این پیام را ندارید.",
+            )
+
+    elif message.user_id != editor.id:
         raise MessageServiceError(
             "FORBIDDEN",
             "شما اجازه ویرایش این پیام را ندارید.",
@@ -171,25 +303,128 @@ def update_message(message, editor, content):
 
 
 def delete_message(message, requester):
-    if message.user_id != requester.id:
-        raise MessageServiceError("FORBIDDEN", "شما اجازه حذف این پیام را ندارید.", 403)
+    if (
+        message.message_type
+        == Message.MessageType.CHANNEL
+    ):
+        channel = _get_channel_or_404(
+            message.channel_id
+        )
+
+        _require_channel_member(
+            channel,
+            requester,
+        )
+
+        if message.user_id != requester.id:
+            _require_channel_permission(
+                channel,
+                requester,
+                AccessPermission.DELETE_MESSAGES,
+                "شما اجازه حذف این پیام را ندارید.",
+            )
+
+    elif message.user_id != requester.id:
+        raise MessageServiceError(
+            "FORBIDDEN",
+            "شما اجازه حذف این پیام را ندارید.",
+            403,
+        )
 
     message.soft_delete()
-    payload = {"id": message.public_id, "room": message.get_room_name()}
-    broadcast_message_event_task.delay("message.deleted", message.get_room_name(), payload)
+
+    payload = {
+        "id": message.public_id,
+        "room": message.get_room_name(),
+    }
+
+    broadcast_message_event_task.delay(
+        "message.deleted",
+        message.get_room_name(),
+        payload,
+    )
+
     return message
 
 
-def search_messages(current_user, query, limit=20):
-    queryset = Message.objects.active().filter(content__icontains=query)
-    queryset = queryset.filter(
-        models.Q(user=current_user)
-        | models.Q(receiver=current_user)
-        | models.Q(message_type=Message.MessageType.GROUP)
-        | models.Q(message_type=Message.MessageType.CHANNEL)
+def search_messages(
+    current_user,
+    query,
+    limit=20,
+):
+    normalized_query = query.strip()
+
+    user_group_ids = list(
+        GroupMembership.objects.filter(
+            user=current_user,
+            group__deleted_at__isnull=True,
+        ).values_list(
+            "group__public_id",
+            flat=True,
+        )
     )
-    messages, has_more = _paginate_messages(queryset, limit)
-    return messages, has_more, {"page": 1, "limit": limit, "total": len(messages), "total_pages": 1}
+
+    user_channel_ids = list(
+        ChannelMembership.objects.filter(
+            user=current_user,
+            channel__deleted_at__isnull=True,
+        ).values_list(
+            "channel__public_id",
+            flat=True,
+        )
+    )
+
+    access_condition = (
+        (
+            models.Q(
+                message_type=Message.MessageType.DIRECT
+            )
+            & (
+                models.Q(user=current_user)
+                | models.Q(receiver=current_user)
+            )
+        )
+        | (
+            models.Q(
+                message_type=Message.MessageType.GROUP
+            )
+            & models.Q(
+                group_id__in=user_group_ids
+            )
+        )
+        | (
+            models.Q(
+                message_type=Message.MessageType.CHANNEL
+            )
+            & models.Q(
+                channel_id__in=user_channel_ids
+            )
+        )
+    )
+
+    queryset = (
+        Message.objects.active()
+        .filter(
+            content__icontains=normalized_query
+        )
+        .filter(access_condition)
+    )
+
+    messages, has_more = _paginate_messages(
+        queryset,
+        limit,
+    )
+
+    return (
+        messages,
+        has_more,
+        {
+            "page": 1,
+            "limit": int(limit),
+            "total": len(messages),
+            "total_pages": 1,
+        },
+    )
 
 
 def global_search_messages(
@@ -317,13 +552,46 @@ def search_group_messages(current_user, group_id, query, limit=20, before=None):
     return messages_list, has_more
 
 
-def search_channel_messages(current_user, channel_id, topic_id=None, query=None, limit=20, before=None):
+def search_channel_messages(
+    current_user,
+    channel_id,
+    topic_id=None,
+    query=None,
+    limit=20,
+    before=None,
+):
     if not query or not query.strip():
-        raise MessageServiceError("VALIDATION_ERROR", "عبارت جستجو نمی‌تواند خالی باشد.", 400)
+        raise MessageServiceError(
+            "VALIDATION_ERROR",
+            "عبارت جستجو نمی‌تواند خالی باشد.",
+            400,
+        )
 
-    if not ChannelMembership.objects.filter(channel__public_id=channel_id, channel__deleted_at__isnull=True, user=current_user).exists():
-        raise MessageServiceError("FORBIDDEN", "شما عضو این کانال نیستید.", 403)
+    channel = _get_channel_or_404(
+        channel_id
+    )
 
-    queryset = Message.objects.for_channel(channel_id, topic_id).filter(content__icontains=query.strip())
-    messages_list, has_more = _paginate_messages(queryset, limit, before)
-    return messages_list, has_more
+    _require_channel_member(
+        channel,
+        current_user,
+    )
+
+    if topic_id:
+        topic = _get_channel_topic_or_404(
+            channel,
+            topic_id,
+        )
+        topic_id = topic.public_id
+
+    queryset = Message.objects.for_channel(
+        channel.public_id,
+        topic_id,
+    ).filter(
+        content__icontains=query.strip()
+    )
+
+    return _paginate_messages(
+        queryset,
+        limit,
+        before,
+    )
