@@ -4,9 +4,12 @@ from rest_framework.permissions import IsAuthenticated
 
 from api.services.storage import (
     StorageServiceError,
-    delete_file,
-    get_presigned_url,
-    upload_file,
+    create_media_attachment,
+    delete_media_attachment,
+    get_media_download_url,
+)
+from api.serializers import (
+    MediaAttachmentSerializer,
 )
 from api.utils.responses import error_response, no_content_response, success_response
 
@@ -25,28 +28,60 @@ def upload_media(request):
             status.HTTP_400_BAD_REQUEST,
         )
 
-    file_obj = request.FILES["file"]
-    folder = request.data.get("folder", "uploads")
     try:
-        result = upload_file(file_obj, filename=file_obj.name, folder=folder)
+        attachment = (
+            create_media_attachment(
+                request.user,
+                request.FILES["file"],
+            )
+        )
     except StorageServiceError as exc:
         return _handle_storage_error(exc)
 
-    return success_response(result, status.HTTP_201_CREATED)
+    return success_response(
+        MediaAttachmentSerializer(
+            attachment
+        ).data,
+        status.HTTP_201_CREATED,
+    )
 
 
 @api_view(["GET", "DELETE"])
 @permission_classes([IsAuthenticated])
-def file_detail(request, file_key):
+def file_detail(
+    request,
+    media_id,
+):
     if request.method == "GET":
         try:
-            url = get_presigned_url(file_key)
+            attachment, url = (
+                get_media_download_url(
+                    request.user,
+                    media_id,
+                )
+            )
         except StorageServiceError as exc:
             return _handle_storage_error(exc)
-        return success_response({"file_key": file_key, "presigned_url": url})
+
+        return success_response(
+            {
+                "id": attachment.public_id,
+                "filename":
+                    attachment.original_name,
+                "media_type":
+                    attachment.media_type,
+                "content_type":
+                    attachment.content_type,
+                "size": attachment.size,
+                "presigned_url": url,
+            }
+        )
 
     try:
-        delete_file(file_key)
+        delete_media_attachment(
+            request.user,
+            media_id,
+        )
     except StorageServiceError as exc:
         return _handle_storage_error(exc)
 
