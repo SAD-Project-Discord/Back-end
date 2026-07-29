@@ -3794,3 +3794,501 @@ class ChannelMembershipPermissionTests(APITestCase):
             response.status_code,
             status.HTTP_201_CREATED,
         )
+
+
+class ChannelMessagingPermissionTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="channel-message-owner@example.com",
+            username="channel_message_owner",
+            name="Channel Message Owner",
+            password="StrongPassword123",
+        )
+
+        self.member = User.objects.create_user(
+            email="channel-message-member@example.com",
+            username="channel_message_member",
+            name="Channel Message Member",
+            password="StrongPassword123",
+        )
+
+        self.outsider = User.objects.create_user(
+            email="channel-message-outsider@example.com",
+            username="channel_message_outsider",
+            name="Channel Message Outsider",
+            password="StrongPassword123",
+        )
+
+        self.channel = Channel.objects.create(
+            name="Messaging Channel",
+            description="Channel messaging tests",
+            creator=self.owner,
+        )
+
+        ChannelMembership.objects.create(
+            channel=self.channel,
+            user=self.owner,
+            role=ChannelMembership.Role.OWNER,
+        )
+
+        self.member_membership = (
+            ChannelMembership.objects.create(
+                channel=self.channel,
+                user=self.member,
+                role=ChannelMembership.Role.MEMBER,
+            )
+        )
+
+        self.other_channel = Channel.objects.create(
+            name="Other Messaging Channel",
+            creator=self.owner,
+        )
+
+        ChannelMembership.objects.create(
+            channel=self.other_channel,
+            user=self.owner,
+            role=ChannelMembership.Role.OWNER,
+        )
+
+        self.messages_url = reverse(
+            "messages"
+        )
+
+        self.channel_messages_url = reverse(
+            "messages-channels",
+            kwargs={
+                "channel_id": self.channel.public_id,
+            },
+        )
+
+        self.search_url = reverse(
+            "messages-search"
+        )
+
+        self.broadcast_patcher = patch(
+            "api.services.messages."
+            "broadcast_message_event_task.delay"
+        )
+        self.mock_broadcast = (
+            self.broadcast_patcher.start()
+        )
+        self.addCleanup(
+            self.broadcast_patcher.stop
+        )
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        topic_response = self.client.post(
+            reverse(
+                "channel-topics",
+                kwargs={
+                    "channel_id":
+                        self.other_channel.public_id,
+                },
+            ),
+            {
+                "name": "Other Channel Topic",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            topic_response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        self.other_topic_id = (
+            topic_response.data["data"]["id"]
+        )
+
+        self.client.force_authenticate(
+            user=None
+        )
+
+    def message_detail_url(self, message):
+        return reverse(
+            "message-detail",
+            kwargs={
+                "message_id": message.public_id,
+            },
+        )
+
+    def create_channel_message(
+        self,
+        sender=None,
+        content="Channel test message",
+    ):
+        return Message.objects.create(
+            user=sender or self.owner,
+            message_type=Message.MessageType.CHANNEL,
+            channel_id=self.channel.public_id,
+            content=content,
+        )
+
+    def create_custom_role(
+        self,
+        name,
+        permissions,
+    ):
+        return AccessRole.objects.create(
+            channel=self.channel,
+            name=name,
+            permissions=permissions,
+            created_by=self.owner,
+        )
+
+    def test_member_can_send_channel_message(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            self.messages_url,
+            {
+                "channel_id":
+                    self.channel.public_id,
+                "content": "Hello channel",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        message = Message.objects.get(
+            public_id=response.data["data"]["id"]
+        )
+
+        self.assertEqual(
+            message.user,
+            self.member,
+        )
+        self.assertEqual(
+            message.channel_id,
+            self.channel.public_id,
+        )
+        self.assertEqual(
+            message.message_type,
+            Message.MessageType.CHANNEL,
+        )
+
+    def test_outsider_cannot_send_channel_message(self):
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.post(
+            self.messages_url,
+            {
+                "channel_id":
+                    self.channel.public_id,
+                "content": "Forbidden message",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_member_can_list_channel_messages(self):
+        message = self.create_channel_message()
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.get(
+            self.channel_messages_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        message_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertIn(
+            message.public_id,
+            message_ids,
+        )
+
+    def test_outsider_cannot_list_channel_messages(self):
+        self.create_channel_message()
+
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.get(
+            self.channel_messages_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_outsider_cannot_view_channel_message_detail(self):
+        message = self.create_channel_message()
+
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.get(
+            self.message_detail_url(message)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_sender_can_edit_own_channel_message(self):
+        message = self.create_channel_message(
+            sender=self.member
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.patch(
+            self.message_detail_url(message),
+            {
+                "content": "Edited own message",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        message.refresh_from_db()
+
+        self.assertEqual(
+            message.content,
+            "Edited own message",
+        )
+        self.assertTrue(
+            message.is_edited
+        )
+
+    def test_sender_can_delete_own_channel_message(self):
+        message = self.create_channel_message(
+            sender=self.member
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.delete(
+            self.message_detail_url(message)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        message.refresh_from_db()
+
+        self.assertIsNotNone(
+            message.deleted_at
+        )
+
+    def test_member_cannot_edit_another_users_message(self):
+        message = self.create_channel_message(
+            sender=self.owner
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.patch(
+            self.message_detail_url(message),
+            {
+                "content": "Unauthorized edit",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_member_cannot_delete_another_users_message(self):
+        message = self.create_channel_message(
+            sender=self.owner
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.delete(
+            self.message_detail_url(message)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        message.refresh_from_db()
+
+        self.assertIsNone(
+            message.deleted_at
+        )
+
+    def test_edit_messages_permission_allows_editing_others(self):
+        role = self.create_custom_role(
+            "Message Editor",
+            [
+                AccessPermission.EDIT_MESSAGES,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            role
+        )
+
+        message = self.create_channel_message(
+            sender=self.owner
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.patch(
+            self.message_detail_url(message),
+            {
+                "content":
+                    "Edited with permission",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        message.refresh_from_db()
+
+        self.assertEqual(
+            message.content,
+            "Edited with permission",
+        )
+
+    def test_delete_messages_permission_allows_deleting_others(self):
+        role = self.create_custom_role(
+            "Message Moderator",
+            [
+                AccessPermission.DELETE_MESSAGES,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            role
+        )
+
+        message = self.create_channel_message(
+            sender=self.owner
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.delete(
+            self.message_detail_url(message)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        message.refresh_from_db()
+
+        self.assertIsNotNone(
+            message.deleted_at
+        )
+
+    def test_topic_from_another_channel_is_rejected(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            self.messages_url,
+            {
+                "channel_id":
+                    self.channel.public_id,
+                "topic_id":
+                    self.other_topic_id,
+                "content":
+                    "Invalid cross-channel topic",
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_404_NOT_FOUND,
+        )
+
+        self.assertFalse(
+            Message.objects.filter(
+                user=self.member,
+                content="Invalid cross-channel topic",
+            ).exists()
+        )
+
+    def test_general_search_hides_channel_messages_from_outsider(self):
+        message = self.create_channel_message(
+            content="Secret channel phrase"
+        )
+
+        self.client.force_authenticate(
+            user=self.outsider
+        )
+
+        response = self.client.get(
+            self.search_url,
+            {
+                "q": "Secret channel phrase",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        message_ids = {
+            item["id"]
+            for item in response.data["data"]
+        }
+
+        self.assertNotIn(
+            message.public_id,
+            message_ids,
+        )
