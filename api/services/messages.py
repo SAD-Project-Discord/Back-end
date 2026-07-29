@@ -1,4 +1,5 @@
-from django.db import models
+from django.db import models, transaction
+from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from api.constants import user_room_name
@@ -7,6 +8,7 @@ from api.models import (
     Channel,
     ChannelMembership,
     GroupMembership,
+    MediaAttachment,
     Message,
     Topic,
     User,
@@ -109,6 +111,70 @@ def _resolve_reply(reply_to_id):
     return _get_message_or_404(reply_to_id)
 
 
+def _resolve_media_attachments(
+    sender,
+    media_ids,
+):
+    media_ids = list(media_ids or [])
+
+    if not media_ids:
+        return []
+
+    if len(media_ids) > 10:
+        raise MessageServiceError(
+            "VALIDATION_ERROR",
+            "در هر پیام حداکثر ۱۰ فایل قابل ارسال است.",
+            400,
+        )
+
+    if len(media_ids) != len(set(media_ids)):
+        raise MessageServiceError(
+            "VALIDATION_ERROR",
+            "شناسه فایل تکراری ارسال شده است.",
+            400,
+        )
+
+    attachments = list(
+        MediaAttachment.objects
+        .select_for_update()
+        .filter(public_id__in=media_ids)
+    )
+
+    attachment_by_id = {
+        attachment.public_id: attachment
+        for attachment in attachments
+    }
+
+    if len(attachment_by_id) != len(media_ids):
+        raise MessageServiceError(
+            "NOT_FOUND",
+            "یک یا چند فایل رسانه‌ای یافت نشد.",
+            404,
+        )
+
+    ordered_attachments = [
+        attachment_by_id[media_id]
+        for media_id in media_ids
+    ]
+
+    for attachment in ordered_attachments:
+        if attachment.owner_id != sender.id:
+            raise MessageServiceError(
+                "FORBIDDEN",
+                "استفاده از فایل متعلق به کاربر دیگر مجاز نیست.",
+                403,
+            )
+
+        if attachment.message_id is not None:
+            raise MessageServiceError(
+                "CONFLICT",
+                "این فایل قبلاً به یک پیام متصل شده است.",
+                409,
+            )
+
+    return ordered_attachments
+
+
 def _determine_message_type(data):
     if data.get("receiver_id"):
         return Message.MessageType.DIRECT
@@ -123,6 +189,7 @@ def _determine_message_type(data):
     )
 
 
+@transaction.atomic
 def create_message(sender, data):
     message_type = _determine_message_type(data)
     content = (data.get("content") or "").strip()
@@ -167,7 +234,14 @@ def create_message(sender, data):
             )
             topic_id = topic.public_id
 
-    media = [{"id": media_id} for media_id in data.get("media_ids", [])]
+    attachments = _resolve_media_attachments(
+        sender,
+        data.get("media_ids"),
+    )
+    media = [
+        {"id": media_id}
+        for media_id in data.get("media_ids", [])
+    ]
 
     message = Message.objects.create(
         user=sender,
@@ -181,6 +255,23 @@ def create_message(sender, data):
         file_url=data.get("file_url", ""),
         media=media,
     )
+
+    if attachments:
+        attached_at = timezone.now()
+
+        MediaAttachment.objects.filter(
+            pk__in=[
+                attachment.pk
+                for attachment in attachments
+            ]
+        ).update(
+            message=message,
+            attached_at=attached_at,
+        )
+
+        for attachment in attachments:
+            attachment.message = message
+            attachment.attached_at = attached_at
 
     payload = message_to_dict(message)
     rooms = {message.get_room_name(), user_room_name(sender.public_id)}

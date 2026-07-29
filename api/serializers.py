@@ -17,6 +17,7 @@ from api.models import (
     Topic,
     User,
     UserPrivacySetting,
+    MediaAttachment,
 )
 
 class UserSerializer(serializers.ModelSerializer):
@@ -99,6 +100,40 @@ class MessageSerializer(serializers.Serializer):
         return message_to_dict(instance)
 
 
+class MediaAttachmentSerializer(
+    serializers.ModelSerializer
+):
+    id = serializers.CharField(
+        source="public_id",
+        read_only=True,
+    )
+    filename = serializers.CharField(
+        source="original_name",
+        read_only=True,
+    )
+    is_attached = serializers.BooleanField(
+        read_only=True,
+    )
+
+    class Meta:
+        model = MediaAttachment
+        fields = [
+            "id",
+            "media_type",
+            "filename",
+            "content_type",
+            "size",
+            "file_url",
+            "is_attached",
+            "created_at",
+        ]
+
+    def to_representation(self, instance):
+        return media_attachment_to_dict(
+            instance
+        )
+
+
 class SendMessageSerializer(serializers.Serializer):
     receiver_id = serializers.CharField(required=False, allow_blank=True)
     group_id = serializers.CharField(required=False, allow_blank=True)
@@ -118,29 +153,128 @@ class EditMessageSerializer(serializers.Serializer):
     content = serializers.CharField()
 
 
-def scheduled_message_to_dict(scheduled_msg):
+def media_attachment_to_dict(attachment):
     return {
-        "id": scheduled_msg.public_id,
-        "sender_id": scheduled_msg.user.public_id,
-        "receiver_id": scheduled_msg.receiver.public_id if scheduled_msg.receiver else None,
-        "group_id": scheduled_msg.group_id or None,
-        "channel_id": scheduled_msg.channel_id or None,
-        "topic_id": scheduled_msg.topic_id or None,
-        "content": scheduled_msg.content,
-        "reply_to_id": scheduled_msg.reply_to.public_id if scheduled_msg.reply_to else None,
-        "file_url": scheduled_msg.file_url,
-        "media": scheduled_msg.media or [],
-        "scheduled_at": scheduled_msg.scheduled_at.isoformat().replace("+00:00", "Z"),
-        "status": scheduled_msg.status,
-        "sent_message_id": scheduled_msg.sent_message.public_id if scheduled_msg.sent_message else None,
-        "created_at": scheduled_msg.created_at.isoformat().replace("+00:00", "Z"),
-        "updated_at": scheduled_msg.updated_at.isoformat().replace("+00:00", "Z"),
+        "id": attachment.public_id,
+        "media_type": attachment.media_type,
+        "filename": attachment.original_name,
+        "content_type": attachment.content_type,
+        "size": attachment.size,
+        "file_url": attachment.file_url,
+        "is_attached": attachment.is_attached,
+        "created_at": (
+            attachment.created_at
+            .isoformat()
+            .replace("+00:00", "Z")
+        ),
+    }
+
+
+def message_to_dict(message):
+    attachments = list(
+        message.attachments.all()
+    )
+
+    if attachments:
+        media = [
+            media_attachment_to_dict(
+                attachment
+            )
+            for attachment in attachments
+        ]
+    else:
+        media = message.media or []
+
+    return {
+        "id": message.public_id,
+        "sender_id": message.user.public_id,
+        "receiver_id": (
+            message.receiver.public_id
+            if message.receiver
+            else None
+        ),
+        "group_id": message.group_id or None,
+        "channel_id": message.channel_id or None,
+        "topic_id": message.topic_id or None,
+        "content": message.content,
+        "reply_to_id": (
+            message.reply_to.public_id
+            if message.reply_to
+            else None
+        ),
+        "file_url": message.file_url,
+        "is_edited": message.is_edited,
+        "is_deleted": message.is_deleted,
+        "media": media,
+        "reactions": message.reactions or [],
+        "created_at": (
+            message.created_at
+            .isoformat()
+            .replace("+00:00", "Z")
+        ),
+        "updated_at": (
+            message.updated_at
+            .isoformat()
+            .replace("+00:00", "Z")
+        ),
     }
 
 
 class ScheduledMessageSerializer(serializers.Serializer):
     def to_representation(self, instance):
         return scheduled_message_to_dict(instance)
+
+
+def scheduled_message_to_dict(
+    scheduled_msg,
+):
+    return {
+        "id": scheduled_msg.public_id,
+        "sender_id": scheduled_msg.user.public_id,
+        "receiver_id": (
+            scheduled_msg.receiver.public_id
+            if scheduled_msg.receiver
+            else None
+        ),
+        "group_id": (
+            scheduled_msg.group_id or None
+        ),
+        "channel_id": (
+            scheduled_msg.channel_id or None
+        ),
+        "topic_id": (
+            scheduled_msg.topic_id or None
+        ),
+        "content": scheduled_msg.content,
+        "reply_to_id": (
+            scheduled_msg.reply_to.public_id
+            if scheduled_msg.reply_to
+            else None
+        ),
+        "file_url": scheduled_msg.file_url,
+        "media": scheduled_msg.media or [],
+        "scheduled_at": (
+            scheduled_msg.scheduled_at
+            .isoformat()
+            .replace("+00:00", "Z")
+        ),
+        "status": scheduled_msg.status,
+        "sent_message_id": (
+            scheduled_msg.sent_message.public_id
+            if scheduled_msg.sent_message
+            else None
+        ),
+        "created_at": (
+            scheduled_msg.created_at
+            .isoformat()
+            .replace("+00:00", "Z")
+        ),
+        "updated_at": (
+            scheduled_msg.updated_at
+            .isoformat()
+            .replace("+00:00", "Z")
+        ),
+    }
 
 
 class CreateScheduledMessageSerializer(serializers.Serializer):
