@@ -148,4 +148,12 @@ MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 MINIO_BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME", "discord-media")
 MINIO_USE_SSL = os.getenv("MINIO_USE_SSL", "False").lower() in ("true", "1", "t")
-MINIO_PUBLIC_URL = os.getenv("MINIO_PUBLIC_URL", f"http://{MINIO_ENDPOINT}/{MINIO_BUCKET_NAME}")
+MINIO_PUBLIC_ENDPOINT = os.getenv("MINIO_PUBLIC_ENDPOINT", "")
+_default_public_url = f"http://{MINIO_PUBLIC_ENDPOINT or MINIO_ENDPOINT}/{MINIO_BUCKET_NAME}"
+MINIO_PUBLIC_URL = os.getenv("MINIO_PUBLIC_URL", _default_public_url)
+if not MINIO_PUBLIC_ENDPOINT and MINIO_PUBLIC_URL:
+    from urllib.parse import urlparse
+    parsed = urlparse(MINIO_PUBLIC_URL)
+    if parsed.netloc:
+        MINIO_PUBLIC_ENDPOINT = parsed.netloc
+

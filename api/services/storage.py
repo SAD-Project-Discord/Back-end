@@ -77,9 +77,10 @@ MEDIA_UPLOAD_RULES = {
 }
 
 
-def get_s3_client():
+def get_s3_client(endpoint_url=None):
     protocol = "https" if settings.MINIO_USE_SSL else "http"
-    endpoint_url = f"{protocol}://{settings.MINIO_ENDPOINT}"
+    if not endpoint_url:
+        endpoint_url = f"{protocol}://{settings.MINIO_ENDPOINT}"
     return boto3.client(
         "s3",
         endpoint_url=endpoint_url,
@@ -104,6 +105,23 @@ def ensure_bucket_exists(client=None):
                 f"خطا در ایجاد باکت ذخیره‌سازی: {str(exc)}",
                 500,
             ) from exc
+
+    try:
+        import json
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"AWS": ["*"]},
+                    "Action": ["s3:GetObject"],
+                    "Resource": [f"arn:aws:s3:::{bucket_name}/*"],
+                }
+            ],
+        }
+        client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(policy))
+    except Exception:
+        pass
 
 
 def validate_media_file(file_obj):
@@ -418,7 +436,12 @@ def delete_file(file_key):
 
 
 def get_presigned_url(file_key, expires_in=3600):
-    client = get_s3_client()
+    public_endpoint = getattr(settings, "MINIO_PUBLIC_ENDPOINT", None)
+    if public_endpoint:
+        protocol = "https" if settings.MINIO_USE_SSL else "http"
+        client = get_s3_client(endpoint_url=f"{protocol}://{public_endpoint}")
+    else:
+        client = get_s3_client()
     try:
         url = client.generate_presigned_url(
             "get_object",
