@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import (
     api_view,
@@ -36,6 +37,25 @@ def _handle_service_error(exc):
     )
 
 
+@extend_schema(
+    tags=["Group Roles"],
+    summary="List custom group roles",
+    description="Lists custom access roles created within the specified group.",
+    methods=["GET"],
+    responses={200: AccessRoleSerializer(many=True)},
+)
+@extend_schema(
+    tags=["Group Roles"],
+    summary="Create custom group role",
+    description="Creates a custom access role in the group with specific permissions (requires MANAGE_ROLES permission).",
+    methods=["POST"],
+    request=CreateAccessRoleSerializer,
+    responses={
+        201: AccessRoleSerializer,
+        400: OpenApiResponse(description="Validation error."),
+        403: OpenApiResponse(description="Forbidden."),
+    },
+)
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def group_role_list_create(
@@ -65,7 +85,7 @@ def group_role_list_create(
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -85,6 +105,21 @@ def group_role_list_create(
     )
 
 
+@extend_schema(
+    tags=["Group Roles"],
+    summary="Update custom group role",
+    description="Updates role name, position, or permissions. Requires MANAGE_ROLES permission.",
+    methods=["PATCH"],
+    request=UpdateAccessRoleSerializer,
+    responses={200: AccessRoleSerializer, 400: OpenApiResponse(description="Validation error.")},
+)
+@extend_schema(
+    tags=["Group Roles"],
+    summary="Delete custom group role",
+    description="Deletes a custom access role from the group. Requires MANAGE_ROLES permission.",
+    methods=["DELETE"],
+    responses={204: OpenApiResponse(description="Role deleted successfully.")},
+)
 @api_view(["PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def group_role_detail(
@@ -100,7 +135,7 @@ def group_role_detail(
         if not serializer.is_valid():
             return error_response(
                 "VALIDATION_ERROR",
-                "اطلاعات ارسالی نامعتبر است.",
+                "Invalid request data.",
                 status.HTTP_400_BAD_REQUEST,
                 serializer.errors,
             )
@@ -131,6 +166,17 @@ def group_role_detail(
     return no_content_response()
 
 
+@extend_schema(
+    tags=["Group Roles"],
+    summary="Assign role to group member",
+    description="Assigns a custom access role to a specific group member.",
+    request=AssignAccessRoleSerializer,
+    responses={
+        200: GroupMembershipSerializer,
+        400: OpenApiResponse(description="Validation error."),
+        403: OpenApiResponse(description="Forbidden."),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def group_member_role_assign(
@@ -145,7 +191,7 @@ def group_member_role_assign(
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -167,6 +213,16 @@ def group_member_role_assign(
     )
 
 
+@extend_schema(
+    tags=["Group Roles"],
+    summary="Remove assigned role from group member",
+    description="Removes an assigned custom access role from a group member.",
+    responses={
+        200: GroupMembershipSerializer,
+        403: OpenApiResponse(description="Forbidden."),
+        404: OpenApiResponse(description="Role assignment not found."),
+    },
+)
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
 def group_member_role_remove(

@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -10,13 +11,30 @@ from api.serializers import (
     UserSerializer,
 )
 from api.services.privacy import get_user_privacy, update_user_privacy
+from api.services.storage import delete_replaced_avatar
 from api.services.users import list_user_contacts, search_users
 from api.utils.responses import error_response, success_response
 
 
-from api.services.storage import delete_replaced_avatar
-
-
+@extend_schema(
+    tags=["Users & Contacts"],
+    summary="Get or update current user profile",
+    description="GET: Returns profile of current authenticated user.\nPATCH/PUT: Updates current user profile (name, bio, avatar_url) and privacy settings if provided.",
+    methods=["GET"],
+    responses={200: UserSerializer},
+)
+@extend_schema(
+    tags=["Users & Contacts"],
+    summary="Update current user profile",
+    description="Updates current user profile details (name, bio, avatar_url/profile_picture) and optional privacy settings.",
+    methods=["PATCH", "PUT"],
+    request=UpdateUserProfileSerializer,
+    responses={
+        200: UserSerializer,
+        400: OpenApiResponse(description="Validation error."),
+        401: OpenApiResponse(description="Unauthorized."),
+    },
+)
 @api_view(["GET", "PATCH", "PUT"])
 @permission_classes([IsAuthenticated])
 def my_profile(request):
@@ -61,6 +79,21 @@ def my_profile(request):
     )
 
 
+@extend_schema(
+    tags=["Users & Contacts"],
+    summary="Get or update privacy settings",
+    description="GET: Retrieves current user privacy settings.\nPATCH/PUT: Updates group_add_permission (everyone/contacts/nobody) and allow_direct_add (boolean).",
+    methods=["GET"],
+    responses={200: UserPrivacySettingSerializer},
+)
+@extend_schema(
+    tags=["Users & Contacts"],
+    summary="Update privacy settings",
+    description="Updates privacy preferences.",
+    methods=["PATCH", "PUT"],
+    request=UserPrivacySettingSerializer,
+    responses={200: UserPrivacySettingSerializer, 400: OpenApiResponse(description="Validation error.")},
+)
 @api_view(["GET", "PATCH", "PUT"])
 @permission_classes([IsAuthenticated])
 def user_privacy_view(request):
@@ -81,6 +114,16 @@ def user_privacy_view(request):
     return success_response(UserPrivacySettingSerializer(updated_privacy).data)
 
 
+@extend_schema(
+    tags=["Users & Contacts"],
+    summary="Search users",
+    description="Searches users by username, name, email, or public ID.",
+    parameters=[
+        OpenApiParameter(name="q", description="Search query term", required=False, type=str),
+        OpenApiParameter(name="limit", description="Max number of users to return", required=False, type=int),
+    ],
+    responses={200: PublicUserProfileSerializer(many=True)},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def search_users_view(request):
@@ -92,6 +135,16 @@ def search_users_view(request):
     )
 
 
+@extend_schema(
+    tags=["Users & Contacts"],
+    summary="List direct message contacts",
+    description="Returns users with whom the authenticated user has exchanged direct messages.",
+    parameters=[
+        OpenApiParameter(name="q", description="Filter contacts by search query", required=False, type=str),
+        OpenApiParameter(name="limit", description="Max number of contacts to return", required=False, type=int),
+    ],
+    responses={200: PublicUserProfileSerializer(many=True)},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def user_contacts_view(request):
@@ -103,6 +156,15 @@ def user_contacts_view(request):
     )
 
 
+@extend_schema(
+    tags=["Users & Contacts"],
+    summary="Get user profile by ID",
+    description="Retrieves public profile of a user by public ID.",
+    responses={
+        200: PublicUserProfileSerializer,
+        404: OpenApiResponse(description="User not found."),
+    },
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def user_profile(request, user_id):
@@ -114,7 +176,7 @@ def user_profile(request, user_id):
     except User.DoesNotExist:
         return error_response(
             "NOT_FOUND",
-            "User not found.",
+            "Requested user not found.",
             status.HTTP_404_NOT_FOUND,
         )
 

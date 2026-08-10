@@ -114,9 +114,47 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Discord-like Messaging API",
-    "DESCRIPTION": "System Analysis and Design (SAD) Discord-like Backend REST API",
+    "DESCRIPTION": """
+# Discord-like Messaging System - REST API Documentation
+
+Comprehensive REST API for Discord-like messaging application developed for **System Analysis and Design (SAD)** course project.
+
+### Key Features & Subsystems
+1. **Authentication & Session Management**: JWT access & refresh token pair rotation, multiple active device sessions management.
+2. **Users & Contacts**: User search, user profiles, direct message contacts list, and granular privacy controls.
+3. **Groups**: Group creation, membership management, direct member addition, invitation lifecycle, and custom permission roles.
+4. **Channels & Topics**: Text/voice channels within servers/workspaces and topic sub-channels.
+5. **Messages**: Direct, group, and channel messaging, reply hierarchy, pinning, search, and emoji/sticker reactions.
+6. **Scheduled Messages**: Schedule messages to be automatically delivered at a future timestamp.
+7. **Media Storage**: Attachment uploads to MinIO / S3 storage with presigned URLs and automatic avatar replacement lifecycle cleanup.
+8. **Stickers**: Custom sticker packs and sticker reactions.
+
+### Authorization
+All protected endpoints require a JWT Bearer token in HTTP header:
+`Authorization: Bearer <access_token>`
+    """,
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "TAGS": [
+        {"name": "Authentication", "description": "User registration, login, JWT token rotation, and active session management"},
+        {"name": "Users & Contacts", "description": "Profile management, user search, contacts list, and privacy settings"},
+        {"name": "Groups", "description": "Group creation, member management, and invitation workflows"},
+        {"name": "Group Roles", "description": "Custom access roles and permission assignments for group members"},
+        {"name": "Channels", "description": "Text/voice channels and topic sub-channels"},
+        {"name": "Channel Memberships", "description": "Channel member management and role updates"},
+        {"name": "Channel Roles", "description": "Custom access roles for channel members"},
+        {"name": "Messages", "description": "Direct, group, and channel messaging, message editing, searching, and reactions"},
+        {"name": "Scheduled Messages", "description": "Schedule messages for future delivery"},
+        {"name": "Media Storage", "description": "File and image uploads to MinIO/S3 and presigned download URLs"},
+        {"name": "Stickers", "description": "Sticker packs and sticker metadata"},
+        {"name": "System Health", "description": "Server health status check"},
+    ],
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayRequestDuration": True,
+    },
 }
 
 CORS_ALLOWED_ORIGINS = [

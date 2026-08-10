@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import (
     api_view,
@@ -36,6 +37,21 @@ def _handle_service_error(exc):
     )
 
 
+@extend_schema(
+    tags=["Channel Roles"],
+    summary="List custom channel roles",
+    description="Lists custom access roles defined within a channel.",
+    methods=["GET"],
+    responses={200: AccessRoleSerializer(many=True)},
+)
+@extend_schema(
+    tags=["Channel Roles"],
+    summary="Create custom channel role",
+    description="Creates a custom access role for the channel (requires MANAGE_ROLES permission).",
+    methods=["POST"],
+    request=CreateAccessRoleSerializer,
+    responses={201: AccessRoleSerializer, 400: OpenApiResponse(description="Validation error.")},
+)
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def channel_role_list_create(
@@ -65,7 +81,7 @@ def channel_role_list_create(
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -85,6 +101,21 @@ def channel_role_list_create(
     )
 
 
+@extend_schema(
+    tags=["Channel Roles"],
+    summary="Update custom channel role",
+    description="Updates role name or permissions in channel.",
+    methods=["PATCH"],
+    request=UpdateAccessRoleSerializer,
+    responses={200: AccessRoleSerializer, 400: OpenApiResponse(description="Validation error.")},
+)
+@extend_schema(
+    tags=["Channel Roles"],
+    summary="Delete custom channel role",
+    description="Deletes a custom channel access role.",
+    methods=["DELETE"],
+    responses={204: OpenApiResponse(description="Role deleted successfully.")},
+)
 @api_view(["PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def channel_role_detail(
@@ -100,7 +131,7 @@ def channel_role_detail(
         if not serializer.is_valid():
             return error_response(
                 "VALIDATION_ERROR",
-                "اطلاعات ارسالی نامعتبر است.",
+                "Invalid request data.",
                 status.HTTP_400_BAD_REQUEST,
                 serializer.errors,
             )
@@ -131,6 +162,13 @@ def channel_role_detail(
     return no_content_response()
 
 
+@extend_schema(
+    tags=["Channel Roles"],
+    summary="Assign role to channel member",
+    description="Assigns a custom access role to a channel member.",
+    request=AssignAccessRoleSerializer,
+    responses={200: ChannelMembershipSerializer, 400: OpenApiResponse(description="Validation error.")},
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def channel_member_role_assign(
@@ -145,7 +183,7 @@ def channel_member_role_assign(
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -167,6 +205,12 @@ def channel_member_role_assign(
     )
 
 
+@extend_schema(
+    tags=["Channel Roles"],
+    summary="Remove assigned role from channel member",
+    description="Removes an assigned custom role from a channel member.",
+    responses={200: ChannelMembershipSerializer, 404: OpenApiResponse(description="Role assignment not found.")},
+)
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
 def channel_member_role_remove(

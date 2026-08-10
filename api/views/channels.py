@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -7,8 +8,8 @@ from api.serializers import (
     CreateChannelSerializer,
     CreateTopicSerializer,
     TopicSerializer,
-    UpdateTopicSerializer,
     UpdateChannelSerializer,
+    UpdateTopicSerializer,
 )
 from api.services.channels import (
     ChannelServiceError,
@@ -38,6 +39,24 @@ def _handle_service_error(exc):
     )
 
 
+@extend_schema(
+    tags=["Channels"],
+    summary="List channels",
+    description="Lists all channels accessible to the authenticated user.",
+    methods=["GET"],
+    responses={200: ChannelSerializer(many=True)},
+)
+@extend_schema(
+    tags=["Channels"],
+    summary="Create channel",
+    description="Creates a new text or voice channel.",
+    methods=["POST"],
+    request=CreateChannelSerializer,
+    responses={
+        201: ChannelSerializer,
+        400: OpenApiResponse(description="Validation error."),
+    },
+)
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def channel_list_create(request):
@@ -60,7 +79,7 @@ def channel_list_create(request):
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -76,6 +95,28 @@ def channel_list_create(request):
     )
 
 
+@extend_schema(
+    tags=["Channels"],
+    summary="Get channel detail",
+    description="Returns detailed information about a specific channel.",
+    methods=["GET"],
+    responses={200: ChannelSerializer, 404: OpenApiResponse(description="Channel not found.")},
+)
+@extend_schema(
+    tags=["Channels"],
+    summary="Update channel",
+    description="Updates channel name or details.",
+    methods=["PATCH"],
+    request=UpdateChannelSerializer,
+    responses={200: ChannelSerializer, 400: OpenApiResponse(description="Validation error."), 403: OpenApiResponse(description="Forbidden.")},
+)
+@extend_schema(
+    tags=["Channels"],
+    summary="Delete channel",
+    description="Deletes a channel.",
+    methods=["DELETE"],
+    responses={204: OpenApiResponse(description="Channel deleted successfully."), 403: OpenApiResponse(description="Forbidden.")},
+)
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def channel_detail(request, channel_id):
@@ -100,7 +141,7 @@ def channel_detail(request, channel_id):
         if not serializer.is_valid():
             return error_response(
                 "VALIDATION_ERROR",
-                "اطلاعات ارسالی نامعتبر است.",
+                "Invalid request data.",
                 status.HTTP_400_BAD_REQUEST,
                 serializer.errors,
             )
@@ -129,6 +170,21 @@ def channel_detail(request, channel_id):
     return no_content_response()
 
 
+@extend_schema(
+    tags=["Channels"],
+    summary="List topics in channel",
+    description="Lists all sub-topics created within a channel.",
+    methods=["GET"],
+    responses={200: TopicSerializer(many=True)},
+)
+@extend_schema(
+    tags=["Channels"],
+    summary="Create topic in channel",
+    description="Creates a new topic in the channel.",
+    methods=["POST"],
+    request=CreateTopicSerializer,
+    responses={201: TopicSerializer, 400: OpenApiResponse(description="Validation error.")},
+)
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def channel_topic_list_create(request, channel_id):
@@ -155,7 +211,7 @@ def channel_topic_list_create(request, channel_id):
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -175,6 +231,28 @@ def channel_topic_list_create(request, channel_id):
     )
 
 
+@extend_schema(
+    tags=["Channels"],
+    summary="Get topic details",
+    description="Retrieves topic details by channel ID and topic ID.",
+    methods=["GET"],
+    responses={200: TopicSerializer, 404: OpenApiResponse(description="Topic not found.")},
+)
+@extend_schema(
+    tags=["Channels"],
+    summary="Update topic",
+    description="Updates topic details.",
+    methods=["PATCH"],
+    request=UpdateTopicSerializer,
+    responses={200: TopicSerializer, 400: OpenApiResponse(description="Validation error.")},
+)
+@extend_schema(
+    tags=["Channels"],
+    summary="Delete topic",
+    description="Deletes a topic from the channel.",
+    methods=["DELETE"],
+    responses={204: OpenApiResponse(description="Topic deleted successfully.")},
+)
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def channel_topic_detail(
@@ -204,7 +282,7 @@ def channel_topic_detail(
         if not serializer.is_valid():
             return error_response(
                 "VALIDATION_ERROR",
-                "اطلاعات ارسالی نامعتبر است.",
+                "Invalid request data.",
                 status.HTTP_400_BAD_REQUEST,
                 serializer.errors,
             )

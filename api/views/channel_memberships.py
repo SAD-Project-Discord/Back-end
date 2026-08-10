@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import (
     api_view,
@@ -33,6 +34,26 @@ def _handle_service_error(exc):
     )
 
 
+@extend_schema(
+    tags=["Channel Memberships"],
+    summary="List members in channel",
+    description="Returns list of members in the specified channel.",
+    methods=["GET"],
+    responses={200: ChannelMembershipSerializer(many=True)},
+)
+@extend_schema(
+    tags=["Channel Memberships"],
+    summary="Add member to channel",
+    description="Adds a user to a channel (requires MANAGE_MEMBERS permission).",
+    methods=["POST"],
+    request=AddChannelMemberSerializer,
+    responses={
+        201: ChannelMembershipSerializer,
+        400: OpenApiResponse(description="Validation error."),
+        403: OpenApiResponse(description="Forbidden."),
+        409: OpenApiResponse(description="User is already a channel member."),
+    },
+)
 @api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def channel_member_list_create(
@@ -62,7 +83,7 @@ def channel_member_list_create(
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -84,6 +105,21 @@ def channel_member_list_create(
     )
 
 
+@extend_schema(
+    tags=["Channel Memberships"],
+    summary="Update channel member role",
+    description="Updates role of a channel member (`admin` or `member`). Requires MANAGE_MEMBERS permission.",
+    methods=["PATCH"],
+    request=UpdateChannelMemberRoleSerializer,
+    responses={200: ChannelMembershipSerializer, 400: OpenApiResponse(description="Validation error."), 403: OpenApiResponse(description="Forbidden.")},
+)
+@extend_schema(
+    tags=["Channel Memberships"],
+    summary="Remove member from channel",
+    description="Removes a member from a channel.",
+    methods=["DELETE"],
+    responses={204: OpenApiResponse(description="Member removed successfully."), 403: OpenApiResponse(description="Forbidden.")},
+)
 @api_view(["PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def channel_member_detail(
@@ -101,7 +137,7 @@ def channel_member_detail(
         if not serializer.is_valid():
             return error_response(
                 "VALIDATION_ERROR",
-                "اطلاعات ارسالی نامعتبر است.",
+                "Invalid request data.",
                 status.HTTP_400_BAD_REQUEST,
                 serializer.errors,
             )
@@ -138,6 +174,12 @@ def channel_member_detail(
     return no_content_response()
 
 
+@extend_schema(
+    tags=["Channel Memberships"],
+    summary="Leave channel",
+    description="Removes the authenticated user from the channel.",
+    responses={204: OpenApiResponse(description="Left channel successfully.")},
+)
 @api_view(["DELETE"])
 @permission_classes([IsAuthenticated])
 def channel_leave(
