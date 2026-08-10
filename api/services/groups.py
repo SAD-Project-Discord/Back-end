@@ -28,7 +28,7 @@ def _get_group_or_404(public_id):
     except Group.DoesNotExist as exc:
         raise GroupServiceError(
             "NOT_FOUND",
-            "گروه مورد نظر یافت نشد.",
+            "Group not found.",
             404,
         ) from exc
 
@@ -42,7 +42,7 @@ def _get_user_or_404(public_id):
     except User.DoesNotExist as exc:
         raise GroupServiceError(
             "NOT_FOUND",
-            "کاربر مورد نظر یافت نشد.",
+            "User not found.",
             404,
         ) from exc
 
@@ -191,6 +191,59 @@ def list_group_members(group_id, requester):
         .prefetch_related("custom_roles")
         .order_by("joined_at")
     )
+
+
+@transaction.atomic
+def add_group_member(group_id, requester, user_id=None, username=None):
+    group = _get_group_or_404(group_id)
+
+    _require_group_permission(
+        group,
+        requester,
+        AccessPermission.MANAGE_MEMBERS,
+        "You do not have permission to add members to this group.",
+    )
+
+    if user_id:
+        target_user = _get_user_or_404(user_id)
+    elif username:
+        try:
+            target_user = User.objects.get(username__iexact=username, deleted_at__isnull=True)
+        except User.DoesNotExist as exc:
+            raise GroupServiceError(
+                "NOT_FOUND",
+                "User not found.",
+                404,
+            ) from exc
+    else:
+        raise GroupServiceError(
+            "VALIDATION_ERROR",
+            "Either user_id or username must be provided.",
+            400,
+        )
+
+    if GroupMembership.objects.filter(group=group, user=target_user).exists():
+        raise GroupServiceError(
+            "CONFLICT",
+            "User is already a member of this group.",
+            409,
+        )
+
+    from api.services.privacy import can_add_user_to_group
+    if not can_add_user_to_group(target_user, inviter=requester):
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "User's privacy settings do not allow direct addition to groups.",
+            403,
+        )
+
+    membership = GroupMembership.objects.create(
+        group=group,
+        user=target_user,
+        role=GroupMembership.Role.MEMBER,
+    )
+
+    return membership
 
 
 @transaction.atomic

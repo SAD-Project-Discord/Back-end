@@ -3,6 +3,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
 from api.serializers import (
+    AddGroupMemberSerializer,
     CreateGroupInvitationSerializer,
     CreateGroupSerializer,
     GroupInvitationSerializer,
@@ -13,6 +14,7 @@ from api.serializers import (
 )
 from api.services.groups import (
     GroupServiceError,
+    add_group_member,
     create_group,
     create_group_invitation,
     delete_group,
@@ -206,22 +208,47 @@ def group_invitation_respond(
     )
 
 
-@api_view(["GET"])
+@api_view(["GET", "POST"])
 @permission_classes([IsAuthenticated])
 def group_member_list(request, group_id):
+    if request.method == "GET":
+        try:
+            memberships = list_group_members(
+                group_id,
+                request.user,
+            )
+        except GroupServiceError as exc:
+            return _handle_service_error(exc)
+
+        return success_response(
+            GroupMembershipSerializer(
+                memberships,
+                many=True,
+            ).data
+        )
+
+    serializer = AddGroupMemberSerializer(data=request.data)
+    if not serializer.is_valid():
+        return error_response(
+            "VALIDATION_ERROR",
+            "Invalid member data.",
+            status.HTTP_400_BAD_REQUEST,
+            serializer.errors,
+        )
+
     try:
-        memberships = list_group_members(
+        membership = add_group_member(
             group_id,
             request.user,
+            user_id=serializer.validated_data.get("user_id"),
+            username=serializer.validated_data.get("username"),
         )
     except GroupServiceError as exc:
         return _handle_service_error(exc)
 
     return success_response(
-        GroupMembershipSerializer(
-            memberships,
-            many=True,
-        ).data
+        GroupMembershipSerializer(membership).data,
+        status.HTTP_201_CREATED,
     )
 
 

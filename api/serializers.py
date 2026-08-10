@@ -47,12 +47,12 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("کاربری با این ایمیل قبلاً ثبت‌نام کرده است.")
+            raise serializers.ValidationError("A user with this email address already exists.")
         return value
 
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError("این نام کاربری قبلاً استفاده شده است.")
+            raise serializers.ValidationError("This username is already taken.")
         return value
 
     def create(self, validated_data):
@@ -345,7 +345,7 @@ class UpdateUserProfileSerializer(serializers.ModelSerializer):
 
         if users.exists():
             raise serializers.ValidationError(
-                "این نام کاربری قبلاً استفاده شده است."
+                "This username is already taken."
             )
 
         return value
@@ -756,6 +756,16 @@ class ChannelMembershipSerializer(
             }
             for role in roles
         ]
+
+
+class AddGroupMemberSerializer(serializers.Serializer):
+    user_id = serializers.CharField(required=False)
+    username = serializers.CharField(required=False)
+
+    def validate(self, attrs):
+        if not attrs.get("user_id") and not attrs.get("username"):
+            raise serializers.ValidationError("Either user_id or username must be provided.")
+        return attrs
 
 
 class AddChannelMemberSerializer(

@@ -35,7 +35,7 @@ def register(request):
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid registration data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -51,7 +51,7 @@ def login(request):
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -63,7 +63,7 @@ def login(request):
     if user is None or user.deleted_at is not None:
         return error_response(
             "UNAUTHORIZED",
-            "ایمیل یا رمز عبور نادرست است.",
+            "Invalid email or password.",
             status.HTTP_401_UNAUTHORIZED,
         )
 
@@ -77,7 +77,7 @@ def refresh(request):
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -90,7 +90,7 @@ def refresh(request):
     if session is None:
         return error_response(
             "UNAUTHORIZED",
-            "توکن نامعتبر یا منقضی شده است.",
+            "Token is invalid or expired.",
             status.HTTP_401_UNAUTHORIZED,
         )
 
@@ -104,7 +104,7 @@ def logout(request):
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -117,7 +117,7 @@ def logout(request):
     if session is None or session.user_id != request.user.id:
         return error_response(
             "UNAUTHORIZED",
-            "توکن نامعتبر یا منقضی شده است.",
+            "Token is invalid or expired.",
             status.HTTP_401_UNAUTHORIZED,
         )
 
@@ -161,7 +161,7 @@ def delete_session(request, session_id):
     except AuthSession.DoesNotExist:
         return error_response(
             "NOT_FOUND",
-            "منبع مورد نظر یافت نشد.",
+            "Session not found.",
             status.HTTP_404_NOT_FOUND,
         )
 

@@ -10,10 +10,11 @@ from api.serializers import (
     UserSerializer,
 )
 from api.services.privacy import get_user_privacy, update_user_privacy
+from api.services.users import list_user_contacts, search_users
 from api.utils.responses import error_response, success_response
 
 
-@api_view(["GET", "PATCH"])
+@api_view(["GET", "PATCH", "PUT"])
 @permission_classes([IsAuthenticated])
 def my_profile(request):
     if request.method == "GET":
@@ -30,19 +31,29 @@ def my_profile(request):
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid profile data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
 
     user = serializer.save()
 
+    # Also handle privacy settings if passed in same request
+    if "group_add_permission" in request.data or "allow_direct_add" in request.data:
+        privacy_serializer = UserPrivacySettingSerializer(
+            get_user_privacy(request.user),
+            data=request.data,
+            partial=True,
+        )
+        if privacy_serializer.is_valid():
+            update_user_privacy(request.user, privacy_serializer.validated_data)
+
     return success_response(
         UserSerializer(user).data
     )
 
 
-@api_view(["GET", "PATCH"])
+@api_view(["GET", "PATCH", "PUT"])
 @permission_classes([IsAuthenticated])
 def user_privacy_view(request):
     privacy = get_user_privacy(request.user)
@@ -53,13 +64,35 @@ def user_privacy_view(request):
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات حریم خصوصی نامعتبر است.",
+            "Invalid privacy settings data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
 
     updated_privacy = update_user_privacy(request.user, serializer.validated_data)
     return success_response(UserPrivacySettingSerializer(updated_privacy).data)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def search_users_view(request):
+    query = request.query_params.get("q", "")
+    limit = request.query_params.get("limit", 20)
+    users_list = search_users(query, current_user=request.user, limit=limit)
+    return success_response(
+        PublicUserProfileSerializer(users_list, many=True).data
+    )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def user_contacts_view(request):
+    query = request.query_params.get("q", "")
+    limit = request.query_params.get("limit", 50)
+    contacts_list = list_user_contacts(request.user, query=query, limit=limit)
+    return success_response(
+        PublicUserProfileSerializer(contacts_list, many=True).data
+    )
 
 
 @api_view(["GET"])
@@ -73,7 +106,7 @@ def user_profile(request, user_id):
     except User.DoesNotExist:
         return error_response(
             "NOT_FOUND",
-            "کاربر مورد نظر یافت نشد.",
+            "User not found.",
             status.HTTP_404_NOT_FOUND,
         )
 
