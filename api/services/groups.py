@@ -370,10 +370,18 @@ def create_group_invitation(group_id, inviter, invitee_id):
         group,
         inviter,
         AccessPermission.MANAGE_INVITATIONS,
-        "شما اجازه مدیریت دعوت‌های این گروه را ندارید.",
+        "You do not have permission to manage invitations for this group.",
     )
 
     invitee = _get_user_or_404(invitee_id)
+
+    from api.services.privacy import can_add_user_to_group
+    if not can_add_user_to_group(invitee, inviter=inviter):
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "User's privacy settings do not allow group invitations from this user.",
+            403,
+        )
 
     if GroupMembership.objects.filter(
         group=group,
@@ -381,7 +389,7 @@ def create_group_invitation(group_id, inviter, invitee_id):
     ).exists():
         raise GroupServiceError(
             "CONFLICT",
-            "این کاربر در حال حاضر عضو گروه است.",
+            "User is already a member of this group.",
             409,
         )
 
@@ -392,7 +400,7 @@ def create_group_invitation(group_id, inviter, invitee_id):
     ).exists():
         raise GroupServiceError(
             "CONFLICT",
-            "برای این کاربر قبلاً دعوت‌نامه فعال ارسال شده است.",
+            "An active invitation has already been sent to this user.",
             409,
         )
 

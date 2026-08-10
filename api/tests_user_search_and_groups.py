@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -127,3 +129,107 @@ class AuthRegistrationErrorMessagesTestCase(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertFalse(response.data["success"])
         self.assertEqual(response.data["error"]["message"], "Username is already taken.")
+
+
+class PrivacyAndAvatarLifecycleTestCase(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="owner_p@example.com",
+            username="owner_p",
+            name="Owner P",
+            password="Password123!",
+        )
+        self.friend = User.objects.create_user(
+            email="friend_p@example.com",
+            username="friend_p",
+            name="Friend P",
+            password="Password123!",
+        )
+        self.stranger = User.objects.create_user(
+            email="stranger_p@example.com",
+            username="stranger_p",
+            name="Stranger P",
+            password="Password123!",
+        )
+        self.target = User.objects.create_user(
+            email="target_p@example.com",
+            username="target_p",
+            name="Target P",
+            password="Password123!",
+        )
+
+        # Make friend and target contacts via DM
+        Message.objects.create(
+            user=self.friend,
+            receiver=self.target,
+            message_type=Message.MessageType.DIRECT,
+            content="Hello DM contact",
+        )
+
+        # Set target privacy to 'contacts'
+        from api.services.privacy import get_user_privacy
+        p = get_user_privacy(self.target)
+        p.group_add_permission = "contacts"
+        p.allow_direct_add = True
+        p.save()
+
+        # Group owned by stranger
+        self.stranger_group = Group.objects.create(name="Stranger Group", creator=self.stranger)
+        GroupMembership.objects.create(group=self.stranger_group, user=self.stranger, role=GroupMembership.Role.OWNER)
+
+        # Group owned by friend
+        self.friend_group = Group.objects.create(name="Friend Group", creator=self.friend)
+        GroupMembership.objects.create(group=self.friend_group, user=self.friend, role=GroupMembership.Role.OWNER)
+
+    def test_contacts_only_blocks_stranger_from_direct_adding(self):
+        self.client.force_authenticate(user=self.stranger)
+        url = f"/api/v1/groups/{self.stranger_group.public_id}/members"
+        response = self.client.post(url, {"user_id": self.target.public_id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_contacts_only_allows_friend_contact_from_direct_adding(self):
+        self.client.force_authenticate(user=self.friend)
+        url = f"/api/v1/groups/{self.friend_group.public_id}/members"
+        response = self.client.post(url, {"user_id": self.target.public_id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_invitation_respects_privacy_settings(self):
+        # Set target privacy to 'nobody'
+        from api.services.privacy import get_user_privacy
+        p = get_user_privacy(self.target)
+        p.group_add_permission = "nobody"
+        p.save()
+
+        self.client.force_authenticate(user=self.friend)
+        url = f"/api/v1/groups/{self.friend_group.public_id}/invitations"
+        response = self.client.post(url, {"invitee_id": self.target.public_id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_avatar_replacement_deletes_old_file(self):
+        from api.models import MediaAttachment
+        self.client.force_authenticate(user=self.owner)
+
+        old_attachment = MediaAttachment.objects.create(
+            owner=self.owner,
+            file_key="media/usr_owner/image/old_avatar.png",
+            file_url="http://localhost:9000/discord-media/media/usr_owner/image/old_avatar.png",
+            original_name="old.png",
+            content_type="image/png",
+            size=100,
+            media_type=MediaAttachment.MediaType.IMAGE,
+        )
+
+        # Set user avatar to old_attachment
+        self.owner.profile_picture = old_attachment.file_url
+        self.owner.save()
+
+        # Update avatar via PATCH /users/me
+        new_url = "http://localhost:9000/discord-media/media/usr_owner/image/new_avatar.png"
+        with patch("api.services.storage.delete_file") as mock_delete:
+            response = self.client.patch(reverse("users-me"), {"avatar_url": new_url}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            mock_delete.assert_called_once_with("media/usr_owner/image/old_avatar.png")
+
+        # Verify old attachment object was deleted
+        self.assertFalse(MediaAttachment.objects.filter(pk=old_attachment.pk).exists())
+

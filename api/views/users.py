@@ -14,6 +14,9 @@ from api.services.users import list_user_contacts, search_users
 from api.utils.responses import error_response, success_response
 
 
+from api.services.storage import delete_replaced_avatar
+
+
 @api_view(["GET", "PATCH", "PUT"])
 @permission_classes([IsAuthenticated])
 def my_profile(request):
@@ -21,6 +24,8 @@ def my_profile(request):
         return success_response(
             UserSerializer(request.user).data
         )
+
+    old_avatar = request.user.profile_picture
 
     serializer = UpdateUserProfileSerializer(
         request.user,
@@ -37,6 +42,9 @@ def my_profile(request):
         )
 
     user = serializer.save()
+
+    if old_avatar != user.profile_picture:
+        delete_replaced_avatar(request.user, old_avatar, user.profile_picture)
 
     # Also handle privacy settings if passed in same request
     if "group_add_permission" in request.data or "allow_direct_add" in request.data:

@@ -455,3 +455,28 @@ def get_presigned_url(file_key, expires_in=3600):
             f"خطا در تولید لینک دسترسی: {str(exc)}",
             500,
         ) from exc
+
+
+def delete_replaced_avatar(user, old_avatar_url, new_avatar_url):
+    old_avatar_url = (old_avatar_url or "").strip()
+    new_avatar_url = (new_avatar_url or "").strip()
+
+    if not old_avatar_url or old_avatar_url == new_avatar_url:
+        return
+
+    attachment = MediaAttachment.objects.filter(owner=user, file_url=old_avatar_url).first()
+    if attachment:
+        if attachment.message_id is None:
+            try:
+                delete_file(attachment.file_key)
+            except Exception:
+                pass
+            attachment.delete()
+    else:
+        bucket = settings.MINIO_BUCKET_NAME
+        if f"/{bucket}/" in old_avatar_url:
+            file_key = old_avatar_url.split(f"/{bucket}/", 1)[-1]
+            try:
+                delete_file(file_key)
+            except Exception:
+                pass
