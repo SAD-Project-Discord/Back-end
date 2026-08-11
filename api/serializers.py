@@ -327,6 +327,13 @@ class UpdateUserProfileSerializer(serializers.ModelSerializer):
         required=False,
         allow_blank=True,
     )
+    group_add_permission = serializers.ChoiceField(
+        choices=UserPrivacySetting.GroupAddPermission.choices,
+        required=False,
+    )
+    allow_direct_add = serializers.BooleanField(
+        required=False,
+    )
 
     class Meta:
         model = User
@@ -335,6 +342,8 @@ class UpdateUserProfileSerializer(serializers.ModelSerializer):
             "name",
             "bio",
             "avatar_url",
+            "group_add_permission",
+            "allow_direct_add",
         ]
         extra_kwargs = {
             "username": {"required": False},
@@ -371,7 +380,7 @@ class CreateGroupSerializer(serializers.Serializer):
     )
     is_private = serializers.BooleanField(
         required=False,
-        default=False,
+        default=True,
     )
     member_ids = serializers.ListField(
         child=serializers.CharField(),
@@ -435,7 +444,10 @@ class GroupSerializer(serializers.ModelSerializer):
         many=True,
         read_only=True,
     )
-    member_count = serializers.SerializerMethodField()
+    member_count = serializers.IntegerField(
+        source="memberships.count",
+        read_only=True,
+    )
 
     class Meta:
         model = Group

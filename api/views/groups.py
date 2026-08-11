@@ -20,6 +20,7 @@ from api.services.groups import (
     create_group_invitation,
     delete_group,
     get_group,
+    join_group,
     leave_group,
     list_group_members,
     list_received_invitations,
@@ -86,10 +87,13 @@ def group_list_create(request):
             serializer.errors,
         )
 
-    group = create_group(
-        request.user,
-        serializer.validated_data,
-    )
+    try:
+        group = create_group(
+            request.user,
+            serializer.validated_data,
+        )
+    except GroupServiceError as exc:
+        return _handle_service_error(exc)
 
     return success_response(
         GroupSerializer(group).data,
@@ -392,3 +396,24 @@ def group_leave(request, group_id):
         return _handle_service_error(exc)
 
     return no_content_response()
+
+
+@extend_schema(
+    tags=["Groups"],
+    summary="Join public group",
+    description="Joins a public group (`is_private=False`). Private groups require an invitation to join.",
+    responses={
+        200: GroupSerializer,
+        403: OpenApiResponse(description="Cannot join a private group without an invitation."),
+        404: OpenApiResponse(description="Group not found."),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def group_join(request, group_id):
+    try:
+        group, _ = join_group(group_id, request.user)
+    except GroupServiceError as exc:
+        return _handle_service_error(exc)
+
+    return success_response(GroupSerializer(group).data)

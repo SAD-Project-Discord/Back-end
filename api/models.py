@@ -142,7 +142,7 @@ class Group(models.Model):
         related_name="chat_groups",
     )
     is_private = models.BooleanField(
-        default=False,
+        default=True,
     )
     deleted_at = models.DateTimeField(
         null=True,

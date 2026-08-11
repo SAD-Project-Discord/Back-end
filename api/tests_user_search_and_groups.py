@@ -268,3 +268,43 @@ class PrivacyAndAvatarLifecycleTestCase(APITestCase):
         response = self.client.post(url, {"invitee_id": self.target.public_id}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
+    def test_create_group_nonexistent_member_id_fails(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(
+            "/api/v1/groups/",
+            {
+                "name": "Invalid Member Group",
+                "member_ids": ["usr_nonexistent9999"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_public_group_get_and_join_by_non_member(self):
+        # Create a public group
+        public_group = Group.objects.create(name="Public Lounge", is_private=False, creator=self.owner)
+        GroupMembership.objects.create(group=public_group, user=self.owner, role=GroupMembership.Role.OWNER)
+
+        # Stranger can view public group details
+        self.client.force_authenticate(user=self.stranger)
+        res_get = self.client.get(f"/api/v1/groups/{public_group.public_id}")
+        self.assertEqual(res_get.status_code, status.HTTP_200_OK)
+        self.assertFalse(res_get.data["data"]["is_private"])
+
+        # Stranger can join public group directly
+        res_join = self.client.post(f"/api/v1/groups/{public_group.public_id}/join")
+        self.assertEqual(res_join.status_code, status.HTTP_200_OK)
+
+    def test_private_group_get_and_join_blocked_for_non_member(self):
+        # Create a private group
+        private_group = Group.objects.create(name="Private VIP", is_private=True, creator=self.owner)
+        GroupMembership.objects.create(group=private_group, user=self.owner, role=GroupMembership.Role.OWNER)
+
+        # Stranger cannot view or join private group directly
+        self.client.force_authenticate(user=self.stranger)
+        res_get = self.client.get(f"/api/v1/groups/{private_group.public_id}")
+        self.assertEqual(res_get.status_code, status.HTTP_403_FORBIDDEN)
+
+        res_join = self.client.post(f"/api/v1/groups/{private_group.public_id}/join")
+        self.assertEqual(res_join.status_code, status.HTTP_403_FORBIDDEN)
+

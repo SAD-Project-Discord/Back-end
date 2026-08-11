@@ -8,6 +8,8 @@ def envelope_postprocessing_hook(result, generator, request, public):
     paths = result.get("paths", {})
 
     for path, path_item in paths.items():
+        if path.rstrip("/") == "/api/v1/health":
+            continue
         for method, operation in path_item.items():
             if not isinstance(operation, dict) or "responses" not in operation:
                 continue

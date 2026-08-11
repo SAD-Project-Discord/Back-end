@@ -70,7 +70,7 @@ def create_group(creator, data):
     group = Group.objects.create(
         name=data["name"].strip(),
         description=data.get("description", "").strip(),
-        is_private=data.get("is_private", False),
+        is_private=data.get("is_private", True),
         creator=creator,
     )
 
@@ -84,15 +84,12 @@ def create_group(creator, data):
     for uid_or_username in member_ids:
         if not uid_or_username:
             continue
-        try:
-            add_group_member(
-                group.public_id,
-                creator,
-                user_id=uid_or_username if uid_or_username.startswith("usr_") else None,
-                username=uid_or_username if not uid_or_username.startswith("usr_") else None,
-            )
-        except GroupServiceError:
-            pass
+        add_group_member(
+            group.public_id,
+            creator,
+            user_id=uid_or_username if uid_or_username.startswith("usr_") else None,
+            username=uid_or_username if not uid_or_username.startswith("usr_") else None,
+        )
 
     return group
 
@@ -100,17 +97,41 @@ def create_group(creator, data):
 def get_group(public_id, requester):
     group = _get_group_or_404(public_id)
 
-    if not GroupMembership.objects.filter(
+    is_member = GroupMembership.objects.filter(
         group=group,
         user=requester,
-    ).exists():
+    ).exists()
+
+    if not is_member and group.is_private:
         raise GroupServiceError(
             "FORBIDDEN",
-            "شما عضو این گروه نیستید.",
+            "You are not a member of this private group.",
             403,
         )
 
     return group
+
+
+@transaction.atomic
+def join_group(group_id, user):
+    group = _get_group_or_404(group_id)
+
+    if GroupMembership.objects.filter(group=group, user=user).exists():
+        return group, False
+
+    if group.is_private:
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "Cannot join a private group without an invitation.",
+            403,
+        )
+
+    GroupMembership.objects.create(
+        group=group,
+        user=user,
+        role=GroupMembership.Role.MEMBER,
+    )
+    return group, True
 
 
 @transaction.atomic

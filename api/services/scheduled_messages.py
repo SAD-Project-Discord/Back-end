@@ -13,12 +13,12 @@ from api.services.messages import (
 def create_scheduled_message(sender, data):
     scheduled_at = data.get("scheduled_at")
     if not scheduled_at or scheduled_at <= timezone.now():
-        raise MessageServiceError("VALIDATION_ERROR", "زمان ارسال پیام باید در آینده باشد.", 400)
+        raise MessageServiceError("VALIDATION_ERROR", "Schedule time must be in the future.", 400)
 
     message_type = _determine_message_type(data)
     content = (data.get("content") or "").strip()
     if not content and not data.get("media_ids"):
-        raise MessageServiceError("VALIDATION_ERROR", "متن پیام نمی‌تواند خالی باشد.", 400)
+        raise MessageServiceError("VALIDATION_ERROR", "Message content cannot be empty.", 400)
 
     reply_to = _resolve_reply(data.get("reply_to_id"))
     receiver = None
@@ -29,7 +29,7 @@ def create_scheduled_message(sender, data):
     if message_type == Message.MessageType.DIRECT:
         receiver = _get_user_or_404(data["receiver_id"])
         if receiver.public_id == sender.public_id:
-            raise MessageServiceError("VALIDATION_ERROR", "ارسال پیام به خودتان مجاز نیست.", 400)
+            raise MessageServiceError("VALIDATION_ERROR", "Cannot send scheduled message to yourself.", 400)
     elif message_type == Message.MessageType.GROUP:
         group_id = data["group_id"]
     else:
@@ -51,6 +51,13 @@ def create_scheduled_message(sender, data):
         scheduled_at=scheduled_at,
         status=ScheduledMessage.Status.PENDING,
     )
+
+    try:
+        from api.tasks import process_scheduled_messages_task
+        process_scheduled_messages_task.delay()
+    except Exception:
+        pass
+
     return scheduled_msg
 
 
@@ -69,7 +76,7 @@ def cancel_scheduled_message(user, scheduled_message_id):
             status=ScheduledMessage.Status.PENDING,
         )
     except ScheduledMessage.DoesNotExist as exc:
-        raise MessageServiceError("NOT_FOUND", "پیام زمان‌بندی‌شده یافت نشد یا قابل لغو نیست.", 404) from exc
+        raise MessageServiceError("NOT_FOUND", "Scheduled message not found or cannot be cancelled.", 404) from exc
 
     scheduled_msg.status = ScheduledMessage.Status.CANCELED
     scheduled_msg.save(update_fields=["status", "updated_at"])

@@ -50,6 +50,16 @@ urlpatterns = [
         name="group-invites-create",
     ),
     path(
+        "<str:group_id>/join",
+        groups.group_join,
+        name="group-join-noslash",
+    ),
+    path(
+        "<str:group_id>/join/",
+        groups.group_join,
+        name="group-join",
+    ),
+    path(
         "<str:group_id>/members",
         groups.group_member_list,
         name="group-members-noslash",
