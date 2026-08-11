@@ -65,7 +65,15 @@ class LoginSerializer(serializers.Serializer):
 
 
 class RefreshTokenSerializer(serializers.Serializer):
-    refresh_token = serializers.CharField()
+    refresh_token = serializers.CharField(required=False)
+    refresh = serializers.CharField(required=False)
+
+    def validate(self, attrs):
+        token = attrs.get("refresh_token") or attrs.get("refresh")
+        if not token:
+            raise serializers.ValidationError("Either refresh_token or refresh field must be provided.")
+        attrs["refresh_token"] = token
+        return attrs
 
 
 class AuthSessionSerializer(serializers.ModelSerializer):
@@ -361,6 +369,15 @@ class CreateGroupSerializer(serializers.Serializer):
         allow_blank=True,
         default="",
     )
+    is_private = serializers.BooleanField(
+        required=False,
+        default=False,
+    )
+    member_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+    )
 
 
 class GroupMembershipSerializer(serializers.ModelSerializer):
@@ -426,6 +443,7 @@ class GroupSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            "is_private",
             "creator_id",
             "member_count",
             "members",
@@ -822,3 +840,7 @@ class MessageReactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = MessageReaction
         fields = ["id", "user_id", "emoji", "sticker_id", "created_at"]
+
+
+class FileUploadSerializer(serializers.Serializer):
+    file = serializers.FileField(help_text="File object to upload (image, audio, video, document)")

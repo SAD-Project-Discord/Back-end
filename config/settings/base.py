@@ -67,8 +67,8 @@ ASGI_APPLICATION = "config.asgi.application"
 AUTH_USER_MODEL = "api.User"
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
     "USER_ID_FIELD": "public_id",
     "USER_ID_CLAIM": "sub",
 }
@@ -149,6 +149,9 @@ All protected endpoints require a JWT Bearer token in HTTP header:
         {"name": "Media Storage", "description": "File and image uploads to MinIO/S3 and presigned download URLs"},
         {"name": "Stickers", "description": "Sticker packs and sticker metadata"},
         {"name": "System Health", "description": "Server health status check"},
+    ],
+    "POSTPROCESSING_HOOKS": [
+        "api.utils.schema.envelope_postprocessing_hook",
     ],
     "SWAGGER_UI_SETTINGS": {
         "deepLinking": True,

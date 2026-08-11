@@ -70,6 +70,7 @@ def create_group(creator, data):
     group = Group.objects.create(
         name=data["name"].strip(),
         description=data.get("description", "").strip(),
+        is_private=data.get("is_private", False),
         creator=creator,
     )
 
@@ -78,6 +79,20 @@ def create_group(creator, data):
         user=creator,
         role=GroupMembership.Role.OWNER,
     )
+
+    member_ids = data.get("member_ids") or []
+    for uid_or_username in member_ids:
+        if not uid_or_username:
+            continue
+        try:
+            add_group_member(
+                group.public_id,
+                creator,
+                user_id=uid_or_username if uid_or_username.startswith("usr_") else None,
+                username=uid_or_username if not uid_or_username.startswith("usr_") else None,
+            )
+        except GroupServiceError:
+            pass
 
     return group
 
@@ -375,8 +390,8 @@ def create_group_invitation(group_id, inviter, invitee_id):
 
     invitee = _get_user_or_404(invitee_id)
 
-    from api.services.privacy import can_add_user_to_group
-    if not can_add_user_to_group(invitee, inviter=inviter):
+    from api.services.privacy import can_invite_user_to_group
+    if not can_invite_user_to_group(invitee, inviter=inviter):
         raise GroupServiceError(
             "FORBIDDEN",
             "User's privacy settings do not allow group invitations from this user.",

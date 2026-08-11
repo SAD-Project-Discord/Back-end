@@ -141,6 +141,9 @@ class Group(models.Model):
         through="GroupMembership",
         related_name="chat_groups",
     )
+    is_private = models.BooleanField(
+        default=False,
+    )
     deleted_at = models.DateTimeField(
         null=True,
         blank=True,

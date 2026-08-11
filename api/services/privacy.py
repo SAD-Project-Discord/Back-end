@@ -29,13 +29,10 @@ def are_users_contacts(user1, user2):
     ).exists()
 
 
-def can_add_user_to_group(target_user, inviter=None):
+def can_invite_user_to_group(target_user, inviter=None):
     privacy = get_user_privacy(target_user)
 
     if privacy.group_add_permission == UserPrivacySetting.GroupAddPermission.NOBODY:
-        return False
-
-    if not privacy.allow_direct_add:
         return False
 
     if privacy.group_add_permission == UserPrivacySetting.GroupAddPermission.CONTACTS:
@@ -44,3 +41,12 @@ def can_add_user_to_group(target_user, inviter=None):
         return are_users_contacts(target_user, inviter)
 
     return True
+
+
+def can_add_user_to_group(target_user, inviter=None):
+    privacy = get_user_privacy(target_user)
+
+    if not privacy.allow_direct_add:
+        return False
+
+    return can_invite_user_to_group(target_user, inviter=inviter)

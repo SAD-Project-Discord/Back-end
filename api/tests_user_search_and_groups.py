@@ -233,3 +233,38 @@ class PrivacyAndAvatarLifecycleTestCase(APITestCase):
         # Verify old attachment object was deleted
         self.assertFalse(MediaAttachment.objects.filter(pk=old_attachment.pk).exists())
 
+    def test_invitation_allowed_when_allow_direct_add_false(self):
+        from api.services.privacy import get_user_privacy
+        p = get_user_privacy(self.target)
+        p.group_add_permission = "everyone"
+        p.allow_direct_add = False
+        p.save()
+
+        self.client.force_authenticate(user=self.friend)
+        url = f"/api/v1/groups/{self.friend_group.public_id}/invitations"
+        response = self.client.post(url, {"invitee_id": self.target.public_id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_group_with_is_private_and_member_ids(self):
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(
+            "/api/v1/groups/",
+            {
+                "name": "Secret Group",
+                "description": "Top secret",
+                "is_private": True,
+                "member_ids": [self.friend.public_id],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["data"]["is_private"])
+        member_ids = [m["user_id"] for m in response.data["data"]["members"]]
+        self.assertIn(self.friend.public_id, member_ids)
+
+    def test_group_invites_alias_url(self):
+        self.client.force_authenticate(user=self.friend)
+        url = f"/api/v1/groups/{self.friend_group.public_id}/invites"
+        response = self.client.post(url, {"invitee_id": self.target.public_id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+

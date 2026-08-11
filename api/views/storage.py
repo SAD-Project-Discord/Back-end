@@ -4,6 +4,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
 from api.serializers import (
+    FileUploadSerializer,
     MediaAttachmentSerializer,
 )
 from api.services.storage import (
@@ -23,6 +24,7 @@ def _handle_storage_error(exc):
     tags=["Media Storage"],
     summary="Upload media file",
     description="Uploads an image, video, audio, or document file to S3/MinIO storage as multipart/form-data (`file` field). Returns attachment details and S3 URL.",
+    request={"multipart/form-data": FileUploadSerializer},
     responses={
         201: MediaAttachmentSerializer,
         400: OpenApiResponse(description="No file uploaded or unsupported media type / file size limit exceeded."),
