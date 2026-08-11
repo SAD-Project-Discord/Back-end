@@ -9,6 +9,7 @@ from api.models import (
     Group,
     GroupInvitation,
     GroupMembership,
+    InviteLink,
     Message,
     MessageReaction,
     ScheduledMessage,
@@ -550,6 +551,10 @@ class CreateChannelSerializer(serializers.Serializer):
         default="",
         trim_whitespace=True,
     )
+    is_private = serializers.BooleanField(
+        required=False,
+        default=True,
+    )
 
 
 class UpdateChannelSerializer(serializers.Serializer):
@@ -563,11 +568,14 @@ class UpdateChannelSerializer(serializers.Serializer):
         allow_blank=True,
         trim_whitespace=True,
     )
+    is_private = serializers.BooleanField(
+        required=False,
+    )
 
     def validate(self, attrs):
         if not attrs:
             raise serializers.ValidationError(
-                "حداقل یکی از فیلدهای name یا description الزامی است."
+                "At least one field (name, description, is_private) must be provided."
             )
 
         return attrs
@@ -590,6 +598,7 @@ class ChannelSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            "is_private",
             "creator_id",
             "topic_count",
             "created_at",
@@ -598,8 +607,34 @@ class ChannelSerializer(serializers.ModelSerializer):
 
     def get_topic_count(self, obj):
         return obj.topics.filter(
-            deleted_at__isnull=True,
+            deleted_at__isnull=True
         ).count()
+
+
+class InviteLinkSerializer(serializers.ModelSerializer):
+    token = serializers.CharField(source="public_id", read_only=True)
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InviteLink
+        fields = ["token", "url", "created_at", "expires_at"]
+
+    def get_url(self, obj):
+        request = self.context.get("request")
+        path = f"/invite/{obj.public_id}"
+        if request:
+            return request.build_absolute_uri(path)
+        return path
+
+
+class InviteLinkPreviewSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    target_type = serializers.CharField()
+    target_id = serializers.CharField()
+    target_name = serializers.CharField()
+    target_description = serializers.CharField()
+    member_count = serializers.IntegerField()
+    is_member = serializers.BooleanField()
 
 
 class CreateTopicSerializer(serializers.Serializer):

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from api.views import groups, roles
+from api.views import groups, invites, roles
 
 
 urlpatterns = [
@@ -8,6 +8,16 @@ urlpatterns = [
         "",
         groups.group_list_create,
         name="groups",
+    ),
+    path(
+        "public",
+        groups.group_public_list,
+        name="group-public-list-noslash",
+    ),
+    path(
+        "public/",
+        groups.group_public_list,
+        name="group-public-list",
     ),
     path(
         "invitations",
@@ -58,6 +68,16 @@ urlpatterns = [
         "<str:group_id>/join/",
         groups.group_join,
         name="group-join",
+    ),
+    path(
+        "<str:group_id>/invite-link",
+        invites.group_invite_link,
+        name="group-invite-link-noslash",
+    ),
+    path(
+        "<str:group_id>/invite-link/",
+        invites.group_invite_link,
+        name="group-invite-link",
     ),
     path(
         "<str:group_id>/members",

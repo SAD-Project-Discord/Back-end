@@ -315,6 +315,18 @@ def remove_channel_member(
 
     target_membership.delete()
 
+    from api.constants import channel_room_name
+    from api.tasks import broadcast_message_event_task
+    broadcast_message_event_task.delay(
+        "channel.member_removed",
+        channel_room_name(channel.public_id),
+        {
+            "channel_id": channel.public_id,
+            "user_id": member_user.public_id,
+            "removed_by": requester.public_id,
+        },
+    )
+
 
 @transaction.atomic
 def leave_channel(

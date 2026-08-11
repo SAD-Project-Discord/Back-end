@@ -23,12 +23,27 @@ from api.services.groups import (
     join_group,
     leave_group,
     list_group_members,
+    list_public_groups,
     list_received_invitations,
     list_user_groups,
     remove_group_member,
     respond_to_group_invitation,
     update_group,
 )
+
+
+@extend_schema(
+    tags=["Groups"],
+    summary="List public groups",
+    description="Returns list of public groups matching optional query parameter `q`.",
+    responses={200: GroupSerializer(many=True)},
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def group_public_list(request):
+    query = request.query_params.get("q")
+    groups = list_public_groups(query=query, requester=request.user)
+    return success_response(GroupSerializer(groups, many=True).data)
 from api.utils.responses import (
     error_response,
     no_content_response,

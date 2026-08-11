@@ -119,6 +119,7 @@ def create_channel(creator, data):
             "description",
             "",
         ).strip(),
+        is_private=data.get("is_private", True),
         creator=creator,
     )
 
@@ -151,10 +152,17 @@ def get_channel(
         channel_id
     )
 
-    _require_channel_member(
-        channel,
-        requester,
-    )
+    is_member = ChannelMembership.objects.filter(
+        channel=channel,
+        user=requester,
+    ).exists()
+
+    if not is_member and channel.is_private:
+        raise ChannelServiceError(
+            "FORBIDDEN",
+            "You are not a member of this private channel.",
+            403,
+        )
 
     return channel
 
@@ -185,6 +193,10 @@ def update_channel(
             "description"
         ].strip()
         update_fields.append("description")
+
+    if "is_private" in data:
+        channel.is_private = data["is_private"]
+        update_fields.append("is_private")
 
     update_fields.append("updated_at")
 

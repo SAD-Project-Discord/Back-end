@@ -366,6 +366,18 @@ def remove_group_member(
 
     target_membership.delete()
 
+    from api.constants import group_room_name
+    from api.tasks import broadcast_message_event_task
+    broadcast_message_event_task.delay(
+        "group.member_removed",
+        group_room_name(group.public_id),
+        {
+            "group_id": group.public_id,
+            "user_id": target_user.public_id,
+            "removed_by": requester.public_id,
+        },
+    )
+
 
 @transaction.atomic
 def leave_group(group_id, user):
@@ -441,17 +453,39 @@ def create_group_invitation(group_id, inviter, invitee_id):
         )
 
     try:
-        return GroupInvitation.objects.create(
+        invitation = GroupInvitation.objects.create(
             group=group,
             inviter=inviter,
             invitee=invitee,
         )
+        from api.constants import user_room_name
+        from api.serializers import GroupInvitationSerializer
+        from api.tasks import broadcast_message_event_task
+        broadcast_message_event_task.delay(
+            "group.invitation.received",
+            user_room_name(invitee.public_id),
+            GroupInvitationSerializer(invitation).data,
+        )
+        return invitation
     except IntegrityError as exc:
         raise GroupServiceError(
             "CONFLICT",
             "برای این کاربر قبلاً دعوت‌نامه فعال ارسال شده است.",
             409,
         ) from exc
+
+
+def list_public_groups(query=None, requester=None):
+    qs = Group.objects.active().filter(is_private=False)
+    if query:
+        qs = qs.filter(name__icontains=query.strip())
+    if requester and requester.is_authenticated:
+        qs = qs.exclude(memberships__user=requester)
+    return (
+        qs.select_related("creator")
+        .prefetch_related("memberships__user")
+        .distinct()
+    )
 
 
 def list_received_invitations(user):

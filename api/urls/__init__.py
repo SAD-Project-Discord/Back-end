@@ -11,4 +11,5 @@ urlpatterns = [
     path("channels/", include("api.urls.channels")),
     path("storage/", include("api.urls.storage")),
     path("stickers/", include("api.urls.stickers")),
+    path("invites/", include("api.urls.invites")),
 ]

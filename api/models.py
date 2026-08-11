@@ -522,6 +522,9 @@ class Channel(models.Model):
         related_name="joined_channels",
         blank=True,
     )
+    is_private = models.BooleanField(
+        default=True,
+    )
     deleted_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -1111,4 +1114,40 @@ class MessageReaction(models.Model):
         while True:
             public_id = f"rct_{secrets.token_hex(6)}"
             if not MessageReaction.objects.filter(public_id=public_id).exists():
+                return public_id
+
+
+class InviteLink(models.Model):
+    class TargetType(models.TextChoices):
+        GROUP = "group", "Group"
+        CHANNEL = "channel", "Channel"
+
+    public_id = models.CharField(max_length=64, unique=True, editable=False)
+    target_type = models.CharField(max_length=10, choices=TargetType.choices)
+    group = models.ForeignKey(Group, null=True, blank=True, on_delete=models.CASCADE, related_name="invite_links")
+    channel = models.ForeignKey(Channel, null=True, blank=True, on_delete=models.CASCADE, related_name="invite_links")
+    creator = models.ForeignKey(User, on_delete=models.CASCADE, related_name="created_invite_links")
+    is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "invite_links"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        target = self.group or self.channel
+        return f"InviteLink {self.public_id} for {self.target_type} {target}"
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"inv_{secrets.token_urlsafe(16)}"
+            if not InviteLink.objects.filter(public_id=public_id).exists():
                 return public_id
