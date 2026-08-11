@@ -829,10 +829,12 @@ class UserPrivacySettingSerializer(serializers.ModelSerializer):
 
 class StickerSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="public_id", read_only=True)
+    url = serializers.CharField(source="image_url", read_only=True)
+    name = serializers.CharField(source="emoji_alias", read_only=True)
 
     class Meta:
         model = Sticker
-        fields = ["id", "emoji_alias", "image_url", "created_at"]
+        fields = ["id", "url", "name", "emoji_alias", "image_url", "created_at"]
 
 
 class StickerPackSerializer(serializers.ModelSerializer):
