@@ -53,6 +53,8 @@ class UserSearchAndContactsTestCase(APITestCase):
         self.assertTrue(response.data["success"])
 
     def test_list_user_contacts(self):
+        from api.models import UserContact
+        UserContact.objects.create(owner=self.user1, contact=self.user2)
         self.client.force_authenticate(user=self.user1)
         response = self.client.get("/api/v1/users/contacts")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -158,13 +160,9 @@ class PrivacyAndAvatarLifecycleTestCase(APITestCase):
             password="Password123!",
         )
 
-        # Make friend and target contacts via DM
-        Message.objects.create(
-            user=self.friend,
-            receiver=self.target,
-            message_type=Message.MessageType.DIRECT,
-            content="Hello DM contact",
-        )
+        # Make target save friend as a contact
+        from api.models import UserContact
+        UserContact.objects.create(owner=self.target, contact=self.friend)
 
         # Set target privacy to 'contacts'
         from api.services.privacy import get_user_privacy

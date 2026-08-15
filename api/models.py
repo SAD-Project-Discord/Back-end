@@ -1035,6 +1035,44 @@ class UserPrivacySetting(models.Model):
         return f"{self.user.username} privacy ({self.group_add_permission})"
 
 
+class UserContact(models.Model):
+    public_id = models.CharField(max_length=32, unique=True, editable=False)
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="contacts")
+    contact = models.ForeignKey(User, on_delete=models.CASCADE, related_name="saved_by_users")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "user_contacts"
+        ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["owner", "contact"], name="unique_user_contact"),
+            models.CheckConstraint(
+                condition=~models.Q(owner=models.F("contact")),
+                name="user_cannot_be_own_contact",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["owner", "-created_at"]),
+            models.Index(fields=["owner", "contact"]),
+        ]
+
+    def __str__(self):
+        return f"{self.owner.username} -> {self.contact.username}"
+
+    def save(self, *args, **kwargs):
+        if not self.public_id:
+            self.public_id = self._generate_public_id()
+        super().save(*args, **kwargs)
+
+    @staticmethod
+    def _generate_public_id():
+        while True:
+            public_id = f"cnt_{secrets.token_hex(6)}"
+            if not UserContact.objects.filter(public_id=public_id).exists():
+                return public_id
+
+
 class StickerPack(models.Model):
     public_id = models.CharField(max_length=32, unique=True, editable=False)
     name = models.CharField(max_length=100)

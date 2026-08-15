@@ -17,6 +17,7 @@ from api.models import (
     StickerPack,
     Topic,
     User,
+    UserContact,
     UserPrivacySetting,
     MediaAttachment,
 )
@@ -308,6 +309,7 @@ class PublicUserProfileSerializer(serializers.ModelSerializer):
         source="profile_picture",
         read_only=True,
     )
+    is_contact = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -317,9 +319,20 @@ class PublicUserProfileSerializer(serializers.ModelSerializer):
             "name",
             "bio",
             "avatar_url",
+            "is_contact",
             "created_at",
             "updated_at",
         ]
+
+    def get_is_contact(self, obj):
+        request = self.context.get("request")
+        if not request or not hasattr(request, "user") or not request.user or not request.user.is_authenticated:
+            return False
+        if hasattr(obj, "is_contact_override"):
+            return bool(obj.is_contact_override)
+        if hasattr(request, "_saved_contact_ids"):
+            return obj.id in request._saved_contact_ids
+        return UserContact.objects.filter(owner=request.user, contact=obj).exists()
 
 
 class UpdateUserProfileSerializer(serializers.ModelSerializer):
