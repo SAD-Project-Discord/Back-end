@@ -1,4 +1,4 @@
-from drf_spectacular.utils import OpenApiResponse, extend_schema
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -19,8 +19,10 @@ from api.services.channels import (
     delete_topic,
     get_channel,
     get_channel_topic,
+    join_channel,
     list_channel_topics,
     list_channels,
+    list_public_channels,
     update_channel,
     update_topic,
 )
@@ -311,3 +313,42 @@ def channel_topic_detail(
         return _handle_service_error(exc)
 
     return no_content_response()
+
+
+@extend_schema(
+    tags=["Channels"],
+    summary="List public channels",
+    description="Lists public channels matching search query q, excluding channels the user has already joined.",
+    parameters=[
+        OpenApiParameter(name="q", description="Filter channels by search query", required=False, type=str),
+    ],
+    responses={200: ChannelSerializer(many=True)},
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def channel_public_list(request):
+    query = request.query_params.get("q", "")
+    channels_list = list_public_channels(query=query, requester=request.user)
+    return success_response(ChannelSerializer(channels_list, many=True).data)
+
+
+@extend_schema(
+    tags=["Channels"],
+    summary="Join public channel",
+    description="Self-service join for a public channel (no invitation needed).",
+    request=None,
+    responses={
+        200: ChannelSerializer,
+        403: OpenApiResponse(description="Channel is private."),
+        404: OpenApiResponse(description="Channel not found."),
+    },
+)
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def channel_join(request, channel_id):
+    try:
+        channel = join_channel(channel_id, request.user)
+    except ChannelServiceError as exc:
+        return _handle_service_error(exc)
+
+    return success_response(ChannelSerializer(channel).data)

@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Q
 
 from api.models import (
     AccessPermission,
@@ -389,3 +390,38 @@ def delete_topic(
     topic.soft_delete()
 
     return topic
+
+
+def list_public_channels(query=None, requester=None):
+    qs = Channel.objects.active().filter(is_private=False)
+    if requester and hasattr(requester, "is_authenticated") and requester.is_authenticated:
+        joined_channel_ids = ChannelMembership.objects.filter(user=requester).values_list("channel_id", flat=True)
+        qs = qs.exclude(id__in=joined_channel_ids)
+
+    query = (query or "").strip()
+    if query:
+        qs = qs.filter(
+            Q(name__icontains=query) | Q(description__icontains=query)
+        )
+
+    return list(qs.order_by("-created_at"))
+
+
+@transaction.atomic
+def join_channel(channel_id, requester):
+    channel = _get_channel_or_404(channel_id)
+
+    if channel.is_private:
+        raise ChannelServiceError(
+            "FORBIDDEN",
+            "امکان عضویت مستقیم در کانال‌های خصوصی وجود ندارد.",
+            403,
+        )
+
+    membership, created = ChannelMembership.objects.get_or_create(
+        channel=channel,
+        user=requester,
+        defaults={"role": ChannelMembership.Role.MEMBER},
+    )
+
+    return channel

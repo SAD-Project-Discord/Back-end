@@ -15,6 +15,16 @@ urlpatterns = [
         name="channels",
     ),
     path(
+        "public",
+        channels.channel_public_list,
+        name="channel-public-list-noslash",
+    ),
+    path(
+        "public/",
+        channels.channel_public_list,
+        name="channel-public-list",
+    ),
+    path(
         "<str:channel_id>/topics",
         channels.channel_topic_list_create,
         name="channel-topics",
@@ -68,6 +78,16 @@ urlpatterns = [
         "<str:channel_id>/invite-link/",
         invites.channel_invite_link,
         name="channel-invite-link",
+    ),
+    path(
+        "<str:channel_id>/join",
+        channels.channel_join,
+        name="channel-join-noslash",
+    ),
+    path(
+        "<str:channel_id>/join/",
+        channels.channel_join,
+        name="channel-join",
     ),
     path(
         "<str:channel_id>",
