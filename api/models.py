@@ -340,6 +340,7 @@ class AccessPermission(models.TextChoices):
     SEND_MESSAGES = "send_messages", "Send Messages"
     EDIT_MESSAGES = "edit_messages", "Edit Messages"
     DELETE_MESSAGES = "delete_messages", "Delete Messages"
+    UPLOAD_MEDIA = "upload_media", "Upload Media"
 
 
 class AccessRoleQuerySet(models.QuerySet):

@@ -37,6 +37,9 @@ MEDIA_UPLOAD_RULES = {
             "video/mp4",
             "video/webm",
             "video/quicktime",
+            "video/x-msvideo",
+            "video/avi",
+            "video/msvideo",
         },
         "max_size": 100 * 1024 * 1024,
     },
@@ -44,6 +47,9 @@ MEDIA_UPLOAD_RULES = {
         "content_types": {
             "audio/mpeg",
             "audio/mp4",
+            "audio/x-m4a",
+            "audio/m4a",
+            "audio/aac",
             "audio/ogg",
             "audio/wav",
             "audio/x-wav",
@@ -71,9 +77,26 @@ MEDIA_UPLOAD_RULES = {
                 "officedocument.presentationml.presentation"
             ),
             "application/zip",
+            "application/x-zip",
+            "application/x-zip-compressed",
         },
         "max_size": 25 * 1024 * 1024,
     },
+}
+
+EXTENSION_UPLOAD_FALLBACK = {
+    "m4a": (
+        MediaAttachment.MediaType.AUDIO,
+        "audio/mp4",
+    ),
+    "avi": (
+        MediaAttachment.MediaType.VIDEO,
+        "video/x-msvideo",
+    ),
+    "zip": (
+        MediaAttachment.MediaType.DOCUMENT,
+        "application/zip",
+    ),
 }
 
 
@@ -124,6 +147,13 @@ def ensure_bucket_exists(client=None):
         pass
 
 
+def _file_extension(file_obj):
+    filename = getattr(file_obj, "name", "") or ""
+    if "." not in filename:
+        return ""
+    return filename.rsplit(".", 1)[-1].lower()
+
+
 def validate_media_file(file_obj):
     content_type = (
         getattr(
@@ -133,6 +163,7 @@ def validate_media_file(file_obj):
         )
         or "application/octet-stream"
     ).lower()
+    content_type = content_type.split(";", 1)[0].strip()
 
     file_size = getattr(
         file_obj,
@@ -157,6 +188,14 @@ def validate_media_file(file_obj):
             media_type = candidate_type
             max_size = rules["max_size"]
             break
+
+    if media_type is None:
+        fallback = EXTENSION_UPLOAD_FALLBACK.get(
+            _file_extension(file_obj)
+        )
+        if fallback is not None:
+            media_type, content_type = fallback
+            max_size = MEDIA_UPLOAD_RULES[media_type]["max_size"]
 
     if media_type is None:
         raise StorageServiceError(

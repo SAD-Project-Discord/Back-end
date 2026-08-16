@@ -26,14 +26,9 @@ BUILTIN_CHANNEL_ROLE_PERMISSIONS = {
     ChannelMembership.Role.OWNER: set(
         AccessPermission.values
     ),
-    ChannelMembership.Role.ADMIN: {
-        AccessPermission.MANAGE_CHANNEL,
-        AccessPermission.MANAGE_TOPICS,
-        AccessPermission.MANAGE_CHANNEL_MEMBERS,
-        AccessPermission.SEND_MESSAGES,
-        AccessPermission.EDIT_MESSAGES,
-        AccessPermission.DELETE_MESSAGES,
-    },
+    ChannelMembership.Role.ADMIN: set(
+        AccessPermission.values
+    ),
     ChannelMembership.Role.MEMBER: {
         AccessPermission.SEND_MESSAGES,
     },
@@ -110,6 +105,9 @@ def get_effective_channel_permissions(
     channel,
     user,
 ):
+    if getattr(channel, "creator_id", None) == user.id:
+        return set(AccessPermission.values)
+
     membership = get_channel_membership(
         channel,
         user,
@@ -117,6 +115,12 @@ def get_effective_channel_permissions(
 
     if membership is None:
         return set()
+
+    if membership.role in {
+        ChannelMembership.Role.OWNER,
+        ChannelMembership.Role.ADMIN,
+    }:
+        return set(AccessPermission.values)
 
     permissions = set(
         BUILTIN_CHANNEL_ROLE_PERMISSIONS.get(

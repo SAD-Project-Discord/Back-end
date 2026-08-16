@@ -69,7 +69,7 @@ def get_or_create_channel_invite_link(channel_id, requester):
     except Channel.DoesNotExist as exc:
         raise InviteServiceError("NOT_FOUND", "Channel not found.", 404) from exc
 
-    if not has_channel_permission(channel, requester, AccessPermission.MANAGE_CHANNEL_MEMBERS):
+    if not has_channel_permission(channel, requester, AccessPermission.MANAGE_INVITATIONS):
         raise InviteServiceError("FORBIDDEN", "You do not have permission to manage invites for this channel.", 403)
 
     link = InviteLink.objects.filter(
@@ -94,7 +94,7 @@ def revoke_channel_invite_link(channel_id, requester):
     except Channel.DoesNotExist as exc:
         raise InviteServiceError("NOT_FOUND", "Channel not found.", 404) from exc
 
-    if not has_channel_permission(channel, requester, AccessPermission.MANAGE_CHANNEL_MEMBERS):
+    if not has_channel_permission(channel, requester, AccessPermission.MANAGE_INVITATIONS):
         raise InviteServiceError("FORBIDDEN", "You do not have permission to manage invites for this channel.", 403)
 
     InviteLink.objects.filter(

@@ -12,6 +12,7 @@ from api.models import (
     Group,
     GroupInvitation,
     GroupMembership,
+    MediaAttachment,
     Message,
     Topic,
     User,
@@ -3687,6 +3688,26 @@ class ChannelMembershipPermissionTests(APITestCase):
             status.HTTP_409_CONFLICT,
         )
 
+    def test_admin_cannot_delete_channel(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.delete(
+            self.channel_detail_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.channel.refresh_from_db()
+
+        self.assertIsNone(
+            self.channel.deleted_at
+        )
+
     def test_admin_can_update_channel(self):
         self.client.force_authenticate(
             user=self.admin
@@ -3793,6 +3814,203 @@ class ChannelMembershipPermissionTests(APITestCase):
         self.assertEqual(
             response.status_code,
             status.HTTP_201_CREATED,
+        )
+
+    def test_admin_can_create_custom_role(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.post(
+            reverse(
+                "channel-roles",
+                kwargs={
+                    "channel_id":
+                        self.channel.public_id,
+                },
+            ),
+            {
+                "name": "Admin Created Role",
+                "permissions": [
+                    AccessPermission.MANAGE_TOPICS,
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+    def test_custom_manage_roles_permission_allows_role_creation(self):
+        role = self.create_custom_role(
+            "Role Manager",
+            [
+                AccessPermission.MANAGE_ROLES,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            role
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            reverse(
+                "channel-roles",
+                kwargs={
+                    "channel_id":
+                        self.channel.public_id,
+                },
+            ),
+            {
+                "name": "Created By Custom Role",
+                "permissions": [
+                    AccessPermission.MANAGE_TOPICS,
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+    def test_regular_member_cannot_create_custom_role(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            reverse(
+                "channel-roles",
+                kwargs={
+                    "channel_id":
+                        self.channel.public_id,
+                },
+            ),
+            {
+                "name": "Unauthorized Role",
+                "permissions": [
+                    AccessPermission.MANAGE_TOPICS,
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_admin_can_get_channel_invite_link(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.post(
+            reverse(
+                "channel-invite-link",
+                kwargs={
+                    "channel_id":
+                        self.channel.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertTrue(
+            response.data["data"]["token"]
+        )
+
+    def test_custom_manage_invitations_allows_invite_link(self):
+        role = self.create_custom_role(
+            "Invite Manager",
+            [
+                AccessPermission.MANAGE_INVITATIONS,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            role
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            reverse(
+                "channel-invite-link",
+                kwargs={
+                    "channel_id":
+                        self.channel.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+    def test_regular_member_cannot_get_channel_invite_link(self):
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            reverse(
+                "channel-invite-link",
+                kwargs={
+                    "channel_id":
+                        self.channel.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+    def test_manage_channel_members_does_not_grant_invite_link(self):
+        role = self.create_custom_role(
+            "Member Manager",
+            [
+                AccessPermission.MANAGE_CHANNEL_MEMBERS,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            role
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            reverse(
+                "channel-invite-link",
+                kwargs={
+                    "channel_id":
+                        self.channel.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
         )
 
 
@@ -4291,4 +4509,306 @@ class ChannelMessagingPermissionTests(APITestCase):
         self.assertNotIn(
             message.public_id,
             message_ids,
+        )
+
+    def _create_attachment(self, owner=None):
+        owner = owner or self.member
+
+        return MediaAttachment.objects.create(
+            owner=owner,
+            file_key=(
+                f"media/{owner.public_id}/"
+                f"image/sample.png"
+            ),
+            file_url=(
+                "http://localhost:9000/"
+                f"discord-media/{owner.public_id}.png"
+            ),
+            original_name="sample.png",
+            content_type="image/png",
+            size=1024,
+            media_type=MediaAttachment.MediaType.IMAGE,
+        )
+
+    def test_member_cannot_send_channel_media_without_upload_permission(self):
+        attachment = self._create_attachment()
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            self.messages_url,
+            {
+                "channel_id":
+                    self.channel.public_id,
+                "media_ids": [
+                    attachment.public_id,
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertEqual(
+            response.data["error"]["code"],
+            "FORBIDDEN",
+        )
+
+        attachment.refresh_from_db()
+
+        self.assertIsNone(
+            attachment.message_id
+        )
+
+    def test_upload_media_permission_allows_channel_attachments(self):
+        role = self.create_custom_role(
+            "Media Uploader",
+            [
+                AccessPermission.UPLOAD_MEDIA,
+            ],
+        )
+
+        self.member_membership.custom_roles.add(
+            role
+        )
+
+        attachment = self._create_attachment()
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.post(
+            self.messages_url,
+            {
+                "channel_id":
+                    self.channel.public_id,
+                "media_ids": [
+                    attachment.public_id,
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        attachment.refresh_from_db()
+
+        self.assertIsNotNone(
+            attachment.message_id
+        )
+
+    def test_channel_admin_can_delete_other_members_message(self):
+        admin = User.objects.create_user(
+            email="channel-message-admin@example.com",
+            username="channel_message_admin",
+            name="Channel Message Admin",
+            password="StrongPassword123",
+        )
+
+        ChannelMembership.objects.create(
+            channel=self.channel,
+            user=admin,
+            role=ChannelMembership.Role.ADMIN,
+        )
+
+        message = self.create_channel_message(
+            sender=self.member
+        )
+
+        self.client.force_authenticate(
+            user=admin
+        )
+
+        response = self.client.delete(
+            self.message_detail_url(message)
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        message.refresh_from_db()
+
+        self.assertIsNotNone(
+            message.deleted_at
+        )
+
+    def test_owner_can_send_channel_media_without_custom_role(self):
+        attachment = self._create_attachment(
+            owner=self.owner
+        )
+
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.post(
+            self.messages_url,
+            {
+                "channel_id":
+                    self.channel.public_id,
+                "media_ids": [
+                    attachment.public_id,
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+
+class GroupMessageDeletionTests(APITestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="group-delete-owner@example.com",
+            username="group_delete_owner",
+            name="Group Delete Owner",
+            password="StrongPassword123",
+        )
+
+        self.admin = User.objects.create_user(
+            email="group-delete-admin@example.com",
+            username="group_delete_admin",
+            name="Group Delete Admin",
+            password="StrongPassword123",
+        )
+
+        self.member = User.objects.create_user(
+            email="group-delete-member@example.com",
+            username="group_delete_member",
+            name="Group Delete Member",
+            password="StrongPassword123",
+        )
+
+        self.group = Group.objects.create(
+            name="Deletion Group",
+            creator=self.owner,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.owner,
+            role=GroupMembership.Role.OWNER,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.admin,
+            role=GroupMembership.Role.ADMIN,
+        )
+
+        GroupMembership.objects.create(
+            group=self.group,
+            user=self.member,
+            role=GroupMembership.Role.MEMBER,
+        )
+
+        self.message = Message.objects.create(
+            user=self.member,
+            message_type=Message.MessageType.GROUP,
+            group_id=self.group.public_id,
+            content="Member group message",
+        )
+
+        self.message_url = reverse(
+            "message-detail",
+            kwargs={
+                "message_id": self.message.public_id,
+            },
+        )
+
+        self.broadcast_patcher = patch(
+            "api.services.messages."
+            "broadcast_message_event_task.delay"
+        )
+        self.mock_broadcast = (
+            self.broadcast_patcher.start()
+        )
+        self.addCleanup(
+            self.broadcast_patcher.stop
+        )
+
+    def test_group_owner_can_delete_other_members_message(self):
+        self.client.force_authenticate(
+            user=self.owner
+        )
+
+        response = self.client.delete(
+            self.message_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_204_NO_CONTENT,
+        )
+
+        self.message.refresh_from_db()
+
+        self.assertIsNotNone(
+            self.message.deleted_at
+        )
+
+    def test_group_admin_cannot_delete_other_members_message(self):
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.delete(
+            self.message_url
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.message.refresh_from_db()
+
+        self.assertIsNone(
+            self.message.deleted_at
+        )
+
+    def test_group_member_cannot_delete_other_members_message(self):
+        owner_message = Message.objects.create(
+            user=self.owner,
+            message_type=Message.MessageType.GROUP,
+            group_id=self.group.public_id,
+            content="Owner group message",
+        )
+
+        self.client.force_authenticate(
+            user=self.member
+        )
+
+        response = self.client.delete(
+            reverse(
+                "message-detail",
+                kwargs={
+                    "message_id":
+                        owner_message.public_id,
+                },
+            )
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        owner_message.refresh_from_db()
+
+        self.assertIsNone(
+            owner_message.deleted_at
         )
