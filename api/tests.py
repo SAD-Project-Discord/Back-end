@@ -16,6 +16,8 @@ from api.models import (
     Message,
     Topic,
     User,
+    UserContact,
+    UserPrivacySetting,
 )
 
 
@@ -3474,6 +3476,135 @@ class ChannelMembershipPermissionTests(APITestCase):
                 channel=self.channel,
                 user=self.outsider,
                 role=ChannelMembership.Role.MEMBER,
+            ).exists()
+        )
+
+
+    def test_owner_can_add_contact_when_channel_privacy_is_contacts(self):
+        privacy, _ = UserPrivacySetting.objects.get_or_create(
+            user=self.outsider
+        )
+        privacy.group_add_permission = (
+            UserPrivacySetting.GroupAddPermission.CONTACTS
+        )
+        privacy.allow_direct_add = True
+        privacy.save()
+
+        UserContact.objects.create(
+            owner=self.outsider,
+            contact=self.owner,
+        )
+
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.post(
+            self.members_url,
+            {"user_id": self.outsider.public_id},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+
+        self.assertTrue(
+            ChannelMembership.objects.filter(
+                channel=self.channel,
+                user=self.outsider,
+            ).exists()
+        )
+
+
+    def test_owner_cannot_add_non_contact_when_channel_privacy_is_contacts(self):
+        privacy, _ = UserPrivacySetting.objects.get_or_create(
+            user=self.outsider
+        )
+        privacy.group_add_permission = (
+            UserPrivacySetting.GroupAddPermission.CONTACTS
+        )
+        privacy.allow_direct_add = True
+        privacy.save()
+
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.post(
+            self.members_url,
+            {"user_id": self.outsider.public_id},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertFalse(
+            ChannelMembership.objects.filter(
+                channel=self.channel,
+                user=self.outsider,
+            ).exists()
+        )
+
+
+    def test_owner_cannot_add_user_when_channel_privacy_is_nobody(self):
+        privacy, _ = UserPrivacySetting.objects.get_or_create(
+            user=self.outsider
+        )
+        privacy.group_add_permission = (
+            UserPrivacySetting.GroupAddPermission.NOBODY
+        )
+        privacy.allow_direct_add = True
+        privacy.save()
+
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.post(
+            self.members_url,
+            {"user_id": self.outsider.public_id},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertFalse(
+            ChannelMembership.objects.filter(
+                channel=self.channel,
+                user=self.outsider,
+            ).exists()
+        )
+
+
+    def test_owner_cannot_add_user_when_direct_add_is_disabled(self):
+        privacy, _ = UserPrivacySetting.objects.get_or_create(
+            user=self.outsider
+        )
+        privacy.group_add_permission = (
+            UserPrivacySetting.GroupAddPermission.EVERYONE
+        )
+        privacy.allow_direct_add = False
+        privacy.save()
+
+        self.client.force_authenticate(user=self.owner)
+
+        response = self.client.post(
+            self.members_url,
+            {"user_id": self.outsider.public_id},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+
+        self.assertFalse(
+            ChannelMembership.objects.filter(
+                channel=self.channel,
+                user=self.outsider,
             ).exists()
         )
 
