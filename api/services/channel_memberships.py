@@ -9,6 +9,7 @@ from api.models import (
 from api.services.access_control import (
     has_channel_permission,
 )
+from api.services.privacy import can_add_user_to_group
 
 
 class ChannelMembershipServiceError(Exception):
@@ -150,6 +151,13 @@ def add_channel_member(
             "CONFLICT",
             "این کاربر در حال حاضر عضو کانال است.",
             409,
+        )
+
+    if not can_add_user_to_group(user, inviter=requester):
+        raise ChannelMembershipServiceError(
+            "FORBIDDEN",
+            "User's privacy settings do not allow direct addition to channels.",
+            403,
         )
 
     try:
