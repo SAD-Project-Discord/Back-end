@@ -17,4 +17,6 @@ urlpatterns = [
     path("<str:message_id>", messages.message_detail, name="message-detail"),
     path("<str:message_id>/reactions/", stickers.add_reaction_view, name="message-reactions-add"),
     path("<str:message_id>/reactions/<str:reaction_id>/", stickers.remove_reaction_view, name="message-reactions-remove"),
+    path("direct/conversations/", messages.direct_conversations, name="messages-direct-conversations"),
+    path("direct/<str:user_id>", messages.direct_messages, name="messages-direct"),
 ]

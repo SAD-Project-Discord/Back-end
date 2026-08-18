@@ -3,7 +3,12 @@ from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 
-from api.serializers import EditMessageSerializer, MessageSerializer, SendMessageSerializer
+from api.serializers import (
+    DirectConversationSerializer,
+    EditMessageSerializer,
+    MessageSerializer,
+    SendMessageSerializer,
+)
 from api.services.messages import (
     MessageServiceError,
     create_message,
@@ -18,6 +23,7 @@ from api.services.messages import (
     search_group_messages,
     search_messages,
     update_message,
+    list_direct_conversations,
 )
 from api.utils.responses import error_response, no_content_response, success_response
 
@@ -53,6 +59,59 @@ def messages(request):
     except MessageServiceError as exc:
         return _handle_service_error(exc)
     return success_response(MessageSerializer(message).data, status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    tags=["Messages"],
+    summary="List direct conversations",
+    description=(
+        "Returns one conversation per direct-message participant, "
+        "ordered by the latest message."
+    ),
+    parameters=[
+        OpenApiParameter(
+            name="limit",
+            description="Number of conversations to retrieve.",
+            required=False,
+            type=int,
+        ),
+        OpenApiParameter(
+            name="cursor",
+            description="Cursor for conversation pagination.",
+            required=False,
+            type=str,
+        ),
+    ],
+    responses={
+        200: DirectConversationSerializer(many=True),
+        400: OpenApiResponse(
+            description="Invalid cursor."
+        ),
+    },
+)
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def direct_conversations(request):
+    limit = request.query_params.get("limit", 50)
+    cursor = request.query_params.get("cursor")
+
+    try:
+        conversations, meta = list_direct_conversations(
+            request.user,
+            limit=limit,
+            cursor=cursor,
+        )
+    except MessageServiceError as exc:
+        return _handle_service_error(exc)
+
+    return success_response(
+        DirectConversationSerializer(
+            conversations,
+            many=True,
+        ).data,
+        status.HTTP_200_OK,
+        meta=meta,
+    )
 
 
 @extend_schema(
