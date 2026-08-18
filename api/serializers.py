@@ -110,6 +110,47 @@ class MessageSerializer(serializers.Serializer):
         return message_to_dict(instance)
 
 
+class DirectConversationUserSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        source="public_id",
+        read_only=True,
+    )
+    username = serializers.CharField(read_only=True)
+    name = serializers.CharField(read_only=True)
+    avatar_url = serializers.URLField(
+        source="profile_picture",
+        read_only=True,
+    )
+
+
+class DirectConversationLastMessageSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        source="public_id",
+        read_only=True,
+    )
+    content = serializers.CharField(read_only=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    sender_id = serializers.CharField(
+        source="user.public_id",
+        read_only=True,
+    )
+    receiver_id = serializers.CharField(
+        source="receiver.public_id",
+        read_only=True,
+    )
+
+
+class DirectConversationSerializer(serializers.Serializer):
+    user = DirectConversationUserSerializer(
+        read_only=True
+    )
+    last_message = (
+        DirectConversationLastMessageSerializer(
+            read_only=True
+        )
+    )
+
+
 class MediaAttachmentSerializer(
     serializers.ModelSerializer
 ):

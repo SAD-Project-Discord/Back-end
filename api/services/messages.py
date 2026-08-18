@@ -1,3 +1,5 @@
+import base64
+
 from django.db import models, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -27,6 +29,29 @@ class MessageServiceError(Exception):
         self.message = message
         self.status_code = status_code
         super().__init__(message)
+
+
+def _encode_conversation_cursor(created_at, message_public_id):
+    raw = f"{created_at.isoformat()}|{message_public_id}"
+    return base64.urlsafe_b64encode(raw.encode()).decode()
+
+
+def _decode_conversation_cursor(cursor):
+    try:
+        raw = base64.urlsafe_b64decode(cursor.encode()).decode()
+        timestamp, message_public_id = raw.split("|", 1)
+        created_at = parse_datetime(timestamp)
+
+        if created_at is None or not message_public_id:
+            raise ValueError
+
+        return created_at, message_public_id
+    except Exception:
+        raise MessageServiceError(
+            "VALIDATION_ERROR",
+            "Invalid conversation cursor.",
+            400,
+        )
 
 
 def _get_user_or_404(public_id):
@@ -297,6 +322,126 @@ def list_direct_messages(current_user, other_user_id, limit=50, before=None):
     other_user = _get_user_or_404(other_user_id)
     queryset = Message.objects.for_direct(current_user, other_user)
     return _paginate_messages(queryset, limit, before)
+
+
+def list_direct_conversations(current_user, limit=50, cursor=None):
+    try:
+        limit = min(max(int(limit), 1), 100)
+    except (ValueError, TypeError):
+        limit = 50
+
+    direct_messages = (
+        Message.objects.active()
+        .filter(message_type=Message.MessageType.DIRECT)
+        .filter(
+            models.Q(
+                user=current_user,
+                receiver__deleted_at__isnull=True,
+            )
+            | models.Q(
+                receiver=current_user,
+                user__deleted_at__isnull=True,
+            )
+        )
+        .annotate(
+            other_user_pk=models.Case(
+                models.When(
+                    user=current_user,
+                    then=models.F("receiver_id"),
+                ),
+                default=models.F("user_id"),
+            )
+        )
+    )
+
+    newer_message = (
+        Message.objects.active()
+        .filter(message_type=Message.MessageType.DIRECT)
+        .filter(
+            models.Q(
+                user=current_user,
+                receiver_id=models.OuterRef("other_user_pk"),
+            )
+            | models.Q(
+                user_id=models.OuterRef("other_user_pk"),
+                receiver=current_user,
+            )
+        )
+        .filter(
+            models.Q(
+                created_at__gt=models.OuterRef("created_at")
+            )
+            | models.Q(
+                created_at=models.OuterRef("created_at"),
+                public_id__gt=models.OuterRef("public_id"),
+            )
+        )
+    )
+
+    queryset = (
+        direct_messages
+        .annotate(
+            has_newer=models.Exists(newer_message)
+        )
+        .filter(has_newer=False)
+        .select_related("user", "receiver")
+    )
+
+    if cursor:
+        created_at, message_public_id = (
+            _decode_conversation_cursor(cursor)
+        )
+
+        queryset = queryset.filter(
+            models.Q(created_at__lt=created_at)
+            | models.Q(
+                created_at=created_at,
+                public_id__lt=message_public_id,
+            )
+        )
+
+    queryset = queryset.order_by(
+        "-created_at",
+        "-public_id",
+    )
+
+    messages = list(queryset[: limit + 1])
+
+    has_more = len(messages) > limit
+    if has_more:
+        messages = messages[:limit]
+
+    conversations = []
+
+    for message in messages:
+        other_user = (
+            message.receiver
+            if message.user_id == current_user.id
+            else message.user
+        )
+
+        conversations.append(
+            {
+                "user": other_user,
+                "last_message": message,
+            }
+        )
+
+    next_cursor = None
+
+    if has_more and messages:
+        last_message = messages[-1]
+
+        next_cursor = _encode_conversation_cursor(
+            last_message.created_at,
+            last_message.public_id,
+        )
+
+    return conversations, {
+        "limit": limit,
+        "has_more": has_more,
+        "next_cursor": next_cursor,
+    }
 
 
 def list_group_messages(group_id, limit=50, before=None):
