@@ -349,6 +349,158 @@ class MediaMessageTests(APITestCase):
             MediaAttachment.MediaType.DOCUMENT,
         )
 
+    @patch(
+        "api.services.storage.get_s3_client"
+    )
+    def test_upload_m4a_creates_audio_attachment(
+        self,
+        mock_get_client,
+    ):
+        mock_get_client.return_value = (
+            MagicMock()
+        )
+
+        self.client.force_authenticate(
+            user=self.sender
+        )
+
+        audio = SimpleUploadedFile(
+            "voice.m4a",
+            b"m4a-content",
+            content_type="audio/x-m4a",
+        )
+
+        response = self.client.post(
+            reverse("storage-upload"),
+            {
+                "file": audio,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            response.data["data"]["media_type"],
+            MediaAttachment.MediaType.AUDIO,
+        )
+
+    @patch(
+        "api.services.storage.get_s3_client"
+    )
+    def test_upload_avi_creates_video_attachment(
+        self,
+        mock_get_client,
+    ):
+        mock_get_client.return_value = (
+            MagicMock()
+        )
+
+        self.client.force_authenticate(
+            user=self.sender
+        )
+
+        video = SimpleUploadedFile(
+            "clip.avi",
+            b"avi-content",
+            content_type="video/x-msvideo",
+        )
+
+        response = self.client.post(
+            reverse("storage-upload"),
+            {
+                "file": video,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            response.data["data"]["media_type"],
+            MediaAttachment.MediaType.VIDEO,
+        )
+
+    @patch(
+        "api.services.storage.get_s3_client"
+    )
+    def test_upload_zip_creates_document_attachment(
+        self,
+        mock_get_client,
+    ):
+        mock_get_client.return_value = (
+            MagicMock()
+        )
+
+        self.client.force_authenticate(
+            user=self.sender
+        )
+
+        archive = SimpleUploadedFile(
+            "bundle.zip",
+            b"PK-zip-content",
+            content_type="application/x-zip-compressed",
+        )
+
+        response = self.client.post(
+            reverse("storage-upload"),
+            {
+                "file": archive,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            response.data["data"]["media_type"],
+            MediaAttachment.MediaType.DOCUMENT,
+        )
+
+    @patch(
+        "api.services.storage.get_s3_client"
+    )
+    def test_upload_m4a_with_octet_stream_uses_extension(
+        self,
+        mock_get_client,
+    ):
+        mock_get_client.return_value = (
+            MagicMock()
+        )
+
+        self.client.force_authenticate(
+            user=self.sender
+        )
+
+        audio = SimpleUploadedFile(
+            "voice.m4a",
+            b"m4a-content",
+            content_type="application/octet-stream",
+        )
+
+        response = self.client.post(
+            reverse("storage-upload"),
+            {
+                "file": audio,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_201_CREATED,
+        )
+        self.assertEqual(
+            response.data["data"]["media_type"],
+            MediaAttachment.MediaType.AUDIO,
+        )
+
     def test_unsupported_file_type_is_rejected(self):
         self.client.force_authenticate(
             user=self.sender

@@ -37,6 +37,9 @@ MEDIA_UPLOAD_RULES = {
             "video/mp4",
             "video/webm",
             "video/quicktime",
+            "video/x-msvideo",
+            "video/avi",
+            "video/msvideo",
         },
         "max_size": 100 * 1024 * 1024,
     },
@@ -44,6 +47,9 @@ MEDIA_UPLOAD_RULES = {
         "content_types": {
             "audio/mpeg",
             "audio/mp4",
+            "audio/x-m4a",
+            "audio/m4a",
+            "audio/aac",
             "audio/ogg",
             "audio/wav",
             "audio/x-wav",
@@ -71,15 +77,33 @@ MEDIA_UPLOAD_RULES = {
                 "officedocument.presentationml.presentation"
             ),
             "application/zip",
+            "application/x-zip",
+            "application/x-zip-compressed",
         },
         "max_size": 25 * 1024 * 1024,
     },
 }
 
+EXTENSION_UPLOAD_FALLBACK = {
+    "m4a": (
+        MediaAttachment.MediaType.AUDIO,
+        "audio/mp4",
+    ),
+    "avi": (
+        MediaAttachment.MediaType.VIDEO,
+        "video/x-msvideo",
+    ),
+    "zip": (
+        MediaAttachment.MediaType.DOCUMENT,
+        "application/zip",
+    ),
+}
 
-def get_s3_client():
+
+def get_s3_client(endpoint_url=None):
     protocol = "https" if settings.MINIO_USE_SSL else "http"
-    endpoint_url = f"{protocol}://{settings.MINIO_ENDPOINT}"
+    if not endpoint_url:
+        endpoint_url = f"{protocol}://{settings.MINIO_ENDPOINT}"
     return boto3.client(
         "s3",
         endpoint_url=endpoint_url,
@@ -105,6 +129,30 @@ def ensure_bucket_exists(client=None):
                 500,
             ) from exc
 
+    try:
+        import json
+        policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"AWS": ["*"]},
+                    "Action": ["s3:GetObject"],
+                    "Resource": [f"arn:aws:s3:::{bucket_name}/*"],
+                }
+            ],
+        }
+        client.put_bucket_policy(Bucket=bucket_name, Policy=json.dumps(policy))
+    except Exception:
+        pass
+
+
+def _file_extension(file_obj):
+    filename = getattr(file_obj, "name", "") or ""
+    if "." not in filename:
+        return ""
+    return filename.rsplit(".", 1)[-1].lower()
+
 
 def validate_media_file(file_obj):
     content_type = (
@@ -115,6 +163,7 @@ def validate_media_file(file_obj):
         )
         or "application/octet-stream"
     ).lower()
+    content_type = content_type.split(";", 1)[0].strip()
 
     file_size = getattr(
         file_obj,
@@ -139,6 +188,14 @@ def validate_media_file(file_obj):
             media_type = candidate_type
             max_size = rules["max_size"]
             break
+
+    if media_type is None:
+        fallback = EXTENSION_UPLOAD_FALLBACK.get(
+            _file_extension(file_obj)
+        )
+        if fallback is not None:
+            media_type, content_type = fallback
+            max_size = MEDIA_UPLOAD_RULES[media_type]["max_size"]
 
     if media_type is None:
         raise StorageServiceError(
@@ -418,7 +475,12 @@ def delete_file(file_key):
 
 
 def get_presigned_url(file_key, expires_in=3600):
-    client = get_s3_client()
+    public_endpoint = getattr(settings, "MINIO_PUBLIC_ENDPOINT", None)
+    if public_endpoint:
+        protocol = "https" if settings.MINIO_USE_SSL else "http"
+        client = get_s3_client(endpoint_url=f"{protocol}://{public_endpoint}")
+    else:
+        client = get_s3_client()
     try:
         url = client.generate_presigned_url(
             "get_object",
@@ -432,3 +494,28 @@ def get_presigned_url(file_key, expires_in=3600):
             f"خطا در تولید لینک دسترسی: {str(exc)}",
             500,
         ) from exc
+
+
+def delete_replaced_avatar(user, old_avatar_url, new_avatar_url):
+    old_avatar_url = (old_avatar_url or "").strip()
+    new_avatar_url = (new_avatar_url or "").strip()
+
+    if not old_avatar_url or old_avatar_url == new_avatar_url:
+        return
+
+    attachment = MediaAttachment.objects.filter(owner=user, file_url=old_avatar_url).first()
+    if attachment:
+        if attachment.message_id is None:
+            try:
+                delete_file(attachment.file_key)
+            except Exception:
+                pass
+            attachment.delete()
+    else:
+        bucket = settings.MINIO_BUCKET_NAME
+        if f"/{bucket}/" in old_avatar_url:
+            file_key = old_avatar_url.split(f"/{bucket}/", 1)[-1]
+            try:
+                delete_file(file_key)
+            except Exception:
+                pass

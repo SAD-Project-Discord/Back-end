@@ -67,8 +67,8 @@ ASGI_APPLICATION = "config.asgi.application"
 AUTH_USER_MODEL = "api.User"
 
 SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
-    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ACCESS_TOKEN_LIFETIME": timedelta(days=1),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
     "USER_ID_FIELD": "public_id",
     "USER_ID_CLAIM": "sub",
 }
@@ -114,9 +114,50 @@ REST_FRAMEWORK = {
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Discord-like Messaging API",
-    "DESCRIPTION": "System Analysis and Design (SAD) Discord-like Backend REST API",
+    "DESCRIPTION": """
+# Discord-like Messaging System - REST API Documentation
+
+Comprehensive REST API for Discord-like messaging application developed for **System Analysis and Design (SAD)** course project.
+
+### Key Features & Subsystems
+1. **Authentication & Session Management**: JWT access & refresh token pair rotation, multiple active device sessions management.
+2. **Users & Contacts**: User search, user profiles, direct message contacts list, and granular privacy controls.
+3. **Groups**: Group creation, membership management, direct member addition, invitation lifecycle, and custom permission roles.
+4. **Channels & Topics**: Text/voice channels within servers/workspaces and topic sub-channels.
+5. **Messages**: Direct, group, and channel messaging, reply hierarchy, pinning, search, and emoji/sticker reactions.
+6. **Scheduled Messages**: Schedule messages to be automatically delivered at a future timestamp.
+7. **Media Storage**: Attachment uploads to MinIO / S3 storage with presigned URLs and automatic avatar replacement lifecycle cleanup.
+8. **Stickers**: Custom sticker packs and sticker reactions.
+
+### Authorization
+All protected endpoints require a JWT Bearer token in HTTP header:
+`Authorization: Bearer <access_token>`
+    """,
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
+    "COMPONENT_SPLIT_REQUEST": True,
+    "TAGS": [
+        {"name": "Authentication", "description": "User registration, login, JWT token rotation, and active session management"},
+        {"name": "Users & Contacts", "description": "Profile management, user search, contacts list, and privacy settings"},
+        {"name": "Groups", "description": "Group creation, member management, and invitation workflows"},
+        {"name": "Group Roles", "description": "Custom access roles and permission assignments for group members"},
+        {"name": "Channels", "description": "Text/voice channels and topic sub-channels"},
+        {"name": "Channel Memberships", "description": "Channel member management and role updates"},
+        {"name": "Channel Roles", "description": "Custom access roles for channel members"},
+        {"name": "Messages", "description": "Direct, group, and channel messaging, message editing, searching, and reactions"},
+        {"name": "Scheduled Messages", "description": "Schedule messages for future delivery"},
+        {"name": "Media Storage", "description": "File and image uploads to MinIO/S3 and presigned download URLs"},
+        {"name": "Stickers", "description": "Sticker packs and sticker metadata"},
+        {"name": "System Health", "description": "Server health status check"},
+    ],
+    "POSTPROCESSING_HOOKS": [
+        "api.utils.schema.envelope_postprocessing_hook",
+    ],
+    "SWAGGER_UI_SETTINGS": {
+        "deepLinking": True,
+        "persistAuthorization": True,
+        "displayRequestDuration": True,
+    },
 }
 
 CORS_ALLOWED_ORIGINS = [
@@ -142,10 +183,24 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+CELERY_BEAT_SCHEDULE = {
+    "process-scheduled-messages-every-5-seconds": {
+        "task": "api.process_scheduled_messages",
+        "schedule": 5.0,
+    },
+}
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "localhost:9000")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY", "minioadmin")
 MINIO_BUCKET_NAME = os.getenv("MINIO_BUCKET_NAME", "discord-media")
 MINIO_USE_SSL = os.getenv("MINIO_USE_SSL", "False").lower() in ("true", "1", "t")
-MINIO_PUBLIC_URL = os.getenv("MINIO_PUBLIC_URL", f"http://{MINIO_ENDPOINT}/{MINIO_BUCKET_NAME}")
+MINIO_PUBLIC_ENDPOINT = os.getenv("MINIO_PUBLIC_ENDPOINT", "")
+_default_public_url = f"http://{MINIO_PUBLIC_ENDPOINT or MINIO_ENDPOINT}/{MINIO_BUCKET_NAME}"
+MINIO_PUBLIC_URL = os.getenv("MINIO_PUBLIC_URL", _default_public_url)
+if not MINIO_PUBLIC_ENDPOINT and MINIO_PUBLIC_URL:
+    from urllib.parse import urlparse
+    parsed = urlparse(MINIO_PUBLIC_URL)
+    if parsed.netloc:
+        MINIO_PUBLIC_ENDPOINT = parsed.netloc
+

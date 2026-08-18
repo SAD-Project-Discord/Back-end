@@ -39,11 +39,19 @@ services:
       CHANNEL_REDIS_URL: redis://redis:6379/1
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_TASK_ALWAYS_EAGER: "False"
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-discord-media}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-False}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000/discord-media}
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
 
   celery:
     build: .
@@ -59,11 +67,47 @@ services:
       CHANNEL_REDIS_URL: redis://redis:6379/1
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_TASK_ALWAYS_EAGER: "False"
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-discord-media}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-False}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000/discord-media}
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      minio:
+        condition: service_started
+
+  celery-beat:
+    build: .
+    command: celery -A config beat -l info
+    volumes:
+      - .:/app
+    environment:
+      DJANGO_ENV: development
+      SECRET_KEY: ${SECRET_KEY:-django-insecure-dev-only-change-me}
+      DATABASE_URL: postgres://${POSTGRES_USER:-backend}:${POSTGRES_PASSWORD:-backend}@db:5432/${POSTGRES_DB:-backend}
+      DB_SSLMODE: disable
+      REDIS_URL: redis://redis:6379/0
+      CHANNEL_REDIS_URL: redis://redis:6379/1
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_TASK_ALWAYS_EAGER: "False"
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-minio:9000}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_BUCKET_NAME: ${MINIO_BUCKET_NAME:-discord-media}
+      MINIO_USE_SSL: ${MINIO_USE_SSL:-False}
+      MINIO_PUBLIC_URL: ${MINIO_PUBLIC_URL:-http://localhost:9000/discord-media}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
 
   minio:
     image: minio/minio:latest

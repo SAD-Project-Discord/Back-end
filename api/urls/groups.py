@@ -1,6 +1,6 @@
 from django.urls import path
 
-from api.views import groups, roles
+from api.views import groups, invites, roles
 
 
 urlpatterns = [
@@ -10,57 +10,152 @@ urlpatterns = [
         name="groups",
     ),
     path(
+        "public",
+        groups.group_public_list,
+        name="group-public-list-noslash",
+    ),
+    path(
+        "public/",
+        groups.group_public_list,
+        name="group-public-list",
+    ),
+    path(
         "invitations",
+        groups.received_group_invitations,
+        name="group-invitations-noslash",
+    ),
+    path(
+        "invitations/",
         groups.received_group_invitations,
         name="group-invitations",
     ),
     path(
         "invitations/<str:invitation_id>/respond",
         groups.group_invitation_respond,
+        name="group-invitation-respond-noslash",
+    ),
+    path(
+        "invitations/<str:invitation_id>/respond/",
+        groups.group_invitation_respond,
         name="group-invitation-respond",
     ),
     path(
         "<str:group_id>/invitations",
         groups.group_invitation_create,
+        name="group-invitation-create-noslash",
+    ),
+    path(
+        "<str:group_id>/invitations/",
+        groups.group_invitation_create,
         name="group-invitation-create",
     ),
     path(
+        "<str:group_id>/invites",
+        groups.group_invitation_create,
+        name="group-invites-create-noslash",
+    ),
+    path(
+        "<str:group_id>/invites/",
+        groups.group_invitation_create,
+        name="group-invites-create",
+    ),
+    path(
+        "<str:group_id>/join",
+        groups.group_join,
+        name="group-join-noslash",
+    ),
+    path(
+        "<str:group_id>/join/",
+        groups.group_join,
+        name="group-join",
+    ),
+    path(
+        "<str:group_id>/invite-link",
+        invites.group_invite_link,
+        name="group-invite-link-noslash",
+    ),
+    path(
+        "<str:group_id>/invite-link/",
+        invites.group_invite_link,
+        name="group-invite-link",
+    ),
+    path(
         "<str:group_id>/members",
+        groups.group_member_list,
+        name="group-members-noslash",
+    ),
+    path(
+        "<str:group_id>/members/",
         groups.group_member_list,
         name="group-members",
     ),
     path(
         "<str:group_id>/members/me",
         groups.group_leave,
+        name="group-leave-noslash",
+    ),
+    path(
+        "<str:group_id>/members/me/",
+        groups.group_leave,
         name="group-leave",
     ),
     path(
         "<str:group_id>/members/<str:user_id>",
+        groups.group_member_remove,
+        name="group-member-remove-noslash",
+    ),
+    path(
+        "<str:group_id>/members/<str:user_id>/",
         groups.group_member_remove,
         name="group-member-remove",
     ),
     path(
         "<str:group_id>/roles",
         roles.group_role_list_create,
+        name="group-roles-noslash",
+    ),
+    path(
+        "<str:group_id>/roles/",
+        roles.group_role_list_create,
         name="group-roles",
     ),
     path(
-    "<str:group_id>/roles/<str:role_id>",
+        "<str:group_id>/roles/<str:role_id>",
+        roles.group_role_detail,
+        name="group-role-detail-noslash",
+    ),
+    path(
+        "<str:group_id>/roles/<str:role_id>/",
         roles.group_role_detail,
         name="group-role-detail",
     ),
     path(
         "<str:group_id>/members/<str:user_id>/roles",
         roles.group_member_role_assign,
+        name="group-member-role-assign-noslash",
+    ),
+    path(
+        "<str:group_id>/members/<str:user_id>/roles/",
+        roles.group_member_role_assign,
         name="group-member-role-assign",
     ),
     path(
         "<str:group_id>/members/<str:user_id>/roles/<str:role_id>",
         roles.group_member_role_remove,
+        name="group-member-role-remove-noslash",
+    ),
+    path(
+        "<str:group_id>/members/<str:user_id>/roles/<str:role_id>/",
+        roles.group_member_role_remove,
         name="group-member-role-remove",
     ),
     path(
         "<str:group_id>",
+        groups.group_detail,
+        name="group-detail-noslash",
+    ),
+    path(
+        "<str:group_id>/",
         groups.group_detail,
         name="group-detail",
     ),

@@ -4,6 +4,7 @@ from api.views import (
     channel_memberships,
     channel_roles,
     channels,
+    invites,
 )
 
 
@@ -12,6 +13,16 @@ urlpatterns = [
         "",
         channels.channel_list_create,
         name="channels",
+    ),
+    path(
+        "public",
+        channels.channel_public_list,
+        name="channel-public-list-noslash",
+    ),
+    path(
+        "public/",
+        channels.channel_public_list,
+        name="channel-public-list",
     ),
     path(
         "<str:channel_id>/topics",
@@ -59,7 +70,32 @@ urlpatterns = [
         name="channel-role-detail",
     ),
     path(
+        "<str:channel_id>/invite-link",
+        invites.channel_invite_link,
+        name="channel-invite-link-noslash",
+    ),
+    path(
+        "<str:channel_id>/invite-link/",
+        invites.channel_invite_link,
+        name="channel-invite-link",
+    ),
+    path(
+        "<str:channel_id>/join",
+        channels.channel_join,
+        name="channel-join-noslash",
+    ),
+    path(
+        "<str:channel_id>/join/",
+        channels.channel_join,
+        name="channel-join",
+    ),
+    path(
         "<str:channel_id>",
+        channels.channel_detail,
+        name="channel-detail-noslash",
+    ),
+    path(
+        "<str:channel_id>/",
         channels.channel_detail,
         name="channel-detail",
     ),

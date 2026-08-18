@@ -1,4 +1,5 @@
 from django.db import transaction
+from django.db.models import Q
 
 from api.models import (
     AccessPermission,
@@ -119,6 +120,7 @@ def create_channel(creator, data):
             "description",
             "",
         ).strip(),
+        is_private=data.get("is_private", True),
         creator=creator,
     )
 
@@ -151,10 +153,17 @@ def get_channel(
         channel_id
     )
 
-    _require_channel_member(
-        channel,
-        requester,
-    )
+    is_member = ChannelMembership.objects.filter(
+        channel=channel,
+        user=requester,
+    ).exists()
+
+    if not is_member and channel.is_private:
+        raise ChannelServiceError(
+            "FORBIDDEN",
+            "You are not a member of this private channel.",
+            403,
+        )
 
     return channel
 
@@ -185,6 +194,10 @@ def update_channel(
             "description"
         ].strip()
         update_fields.append("description")
+
+    if "is_private" in data:
+        channel.is_private = data["is_private"]
+        update_fields.append("is_private")
 
     update_fields.append("updated_at")
 
@@ -377,3 +390,38 @@ def delete_topic(
     topic.soft_delete()
 
     return topic
+
+
+def list_public_channels(query=None, requester=None):
+    qs = Channel.objects.active().filter(is_private=False)
+    if requester and hasattr(requester, "is_authenticated") and requester.is_authenticated:
+        joined_channel_ids = ChannelMembership.objects.filter(user=requester).values_list("channel_id", flat=True)
+        qs = qs.exclude(id__in=joined_channel_ids)
+
+    query = (query or "").strip()
+    if query:
+        qs = qs.filter(
+            Q(name__icontains=query) | Q(description__icontains=query)
+        )
+
+    return list(qs.order_by("-created_at"))
+
+
+@transaction.atomic
+def join_channel(channel_id, requester):
+    channel = _get_channel_or_404(channel_id)
+
+    if channel.is_private:
+        raise ChannelServiceError(
+            "FORBIDDEN",
+            "امکان عضویت مستقیم در کانال‌های خصوصی وجود ندارد.",
+            403,
+        )
+
+    membership, created = ChannelMembership.objects.get_or_create(
+        channel=channel,
+        user=requester,
+        defaults={"role": ChannelMembership.Role.MEMBER},
+    )
+
+    return channel

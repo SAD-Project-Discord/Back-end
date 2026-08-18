@@ -7,6 +7,7 @@ from api.models import (
     AccessPermission,
     Channel,
     ChannelMembership,
+    Group,
     GroupMembership,
     MediaAttachment,
     Message,
@@ -225,6 +226,14 @@ def create_message(sender, data):
             "شما اجازه ارسال پیام در این کانال را ندارید.",
         )
 
+        if data.get("media_ids"):
+            _require_channel_permission(
+                channel,
+                sender,
+                AccessPermission.UPLOAD_MEDIA,
+                "شما اجازه ارسال فایل در این کانال را ندارید.",
+            )
+
         channel_id = channel.public_id
 
         if topic_id:
@@ -414,6 +423,24 @@ def delete_message(message, requester):
                 AccessPermission.DELETE_MESSAGES,
                 "شما اجازه حذف این پیام را ندارید.",
             )
+
+    elif (
+        message.message_type
+        == Message.MessageType.GROUP
+    ):
+        if message.user_id != requester.id:
+            is_group_owner = Group.objects.filter(
+                public_id=message.group_id,
+                creator=requester,
+                deleted_at__isnull=True,
+            ).exists()
+
+            if not is_group_owner:
+                raise MessageServiceError(
+                    "FORBIDDEN",
+                    "شما اجازه حذف این پیام را ندارید.",
+                    403,
+                )
 
     elif message.user_id != requester.id:
         raise MessageServiceError(

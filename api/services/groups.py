@@ -28,7 +28,7 @@ def _get_group_or_404(public_id):
     except Group.DoesNotExist as exc:
         raise GroupServiceError(
             "NOT_FOUND",
-            "گروه مورد نظر یافت نشد.",
+            "Group not found.",
             404,
         ) from exc
 
@@ -42,7 +42,7 @@ def _get_user_or_404(public_id):
     except User.DoesNotExist as exc:
         raise GroupServiceError(
             "NOT_FOUND",
-            "کاربر مورد نظر یافت نشد.",
+            "User not found.",
             404,
         ) from exc
 
@@ -70,6 +70,7 @@ def create_group(creator, data):
     group = Group.objects.create(
         name=data["name"].strip(),
         description=data.get("description", "").strip(),
+        is_private=data.get("is_private", True),
         creator=creator,
     )
 
@@ -79,23 +80,58 @@ def create_group(creator, data):
         role=GroupMembership.Role.OWNER,
     )
 
+    member_ids = data.get("member_ids") or []
+    for uid_or_username in member_ids:
+        if not uid_or_username:
+            continue
+        add_group_member(
+            group.public_id,
+            creator,
+            user_id=uid_or_username if uid_or_username.startswith("usr_") else None,
+            username=uid_or_username if not uid_or_username.startswith("usr_") else None,
+        )
+
     return group
 
 
 def get_group(public_id, requester):
     group = _get_group_or_404(public_id)
 
-    if not GroupMembership.objects.filter(
+    is_member = GroupMembership.objects.filter(
         group=group,
         user=requester,
-    ).exists():
+    ).exists()
+
+    if not is_member and group.is_private:
         raise GroupServiceError(
             "FORBIDDEN",
-            "شما عضو این گروه نیستید.",
+            "You are not a member of this private group.",
             403,
         )
 
     return group
+
+
+@transaction.atomic
+def join_group(group_id, user):
+    group = _get_group_or_404(group_id)
+
+    if GroupMembership.objects.filter(group=group, user=user).exists():
+        return group, False
+
+    if group.is_private:
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "Cannot join a private group without an invitation.",
+            403,
+        )
+
+    GroupMembership.objects.create(
+        group=group,
+        user=user,
+        role=GroupMembership.Role.MEMBER,
+    )
+    return group, True
 
 
 @transaction.atomic
@@ -194,6 +230,59 @@ def list_group_members(group_id, requester):
 
 
 @transaction.atomic
+def add_group_member(group_id, requester, user_id=None, username=None):
+    group = _get_group_or_404(group_id)
+
+    _require_group_permission(
+        group,
+        requester,
+        AccessPermission.MANAGE_MEMBERS,
+        "You do not have permission to add members to this group.",
+    )
+
+    if user_id:
+        target_user = _get_user_or_404(user_id)
+    elif username:
+        try:
+            target_user = User.objects.get(username__iexact=username, deleted_at__isnull=True)
+        except User.DoesNotExist as exc:
+            raise GroupServiceError(
+                "NOT_FOUND",
+                "User not found.",
+                404,
+            ) from exc
+    else:
+        raise GroupServiceError(
+            "VALIDATION_ERROR",
+            "Either user_id or username must be provided.",
+            400,
+        )
+
+    if GroupMembership.objects.filter(group=group, user=target_user).exists():
+        raise GroupServiceError(
+            "CONFLICT",
+            "User is already a member of this group.",
+            409,
+        )
+
+    from api.services.privacy import can_add_user_to_group
+    if not can_add_user_to_group(target_user, inviter=requester):
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "User's privacy settings do not allow direct addition to groups.",
+            403,
+        )
+
+    membership = GroupMembership.objects.create(
+        group=group,
+        user=target_user,
+        role=GroupMembership.Role.MEMBER,
+    )
+
+    return membership
+
+
+@transaction.atomic
 def remove_group_member(
     group_id,
     requester,
@@ -277,6 +366,18 @@ def remove_group_member(
 
     target_membership.delete()
 
+    from api.constants import group_room_name
+    from api.tasks import broadcast_message_event_task
+    broadcast_message_event_task.delay(
+        "group.member_removed",
+        group_room_name(group.public_id),
+        {
+            "group_id": group.public_id,
+            "user_id": target_user.public_id,
+            "removed_by": requester.public_id,
+        },
+    )
+
 
 @transaction.atomic
 def leave_group(group_id, user):
@@ -317,10 +418,18 @@ def create_group_invitation(group_id, inviter, invitee_id):
         group,
         inviter,
         AccessPermission.MANAGE_INVITATIONS,
-        "شما اجازه مدیریت دعوت‌های این گروه را ندارید.",
+        "You do not have permission to manage invitations for this group.",
     )
 
     invitee = _get_user_or_404(invitee_id)
+
+    from api.services.privacy import can_invite_user_to_group
+    if not can_invite_user_to_group(invitee, inviter=inviter):
+        raise GroupServiceError(
+            "FORBIDDEN",
+            "User's privacy settings do not allow group invitations from this user.",
+            403,
+        )
 
     if GroupMembership.objects.filter(
         group=group,
@@ -328,7 +437,7 @@ def create_group_invitation(group_id, inviter, invitee_id):
     ).exists():
         raise GroupServiceError(
             "CONFLICT",
-            "این کاربر در حال حاضر عضو گروه است.",
+            "User is already a member of this group.",
             409,
         )
 
@@ -339,22 +448,44 @@ def create_group_invitation(group_id, inviter, invitee_id):
     ).exists():
         raise GroupServiceError(
             "CONFLICT",
-            "برای این کاربر قبلاً دعوت‌نامه فعال ارسال شده است.",
+            "An active invitation has already been sent to this user.",
             409,
         )
 
     try:
-        return GroupInvitation.objects.create(
+        invitation = GroupInvitation.objects.create(
             group=group,
             inviter=inviter,
             invitee=invitee,
         )
+        from api.constants import user_room_name
+        from api.serializers import GroupInvitationSerializer
+        from api.tasks import broadcast_message_event_task
+        broadcast_message_event_task.delay(
+            "group.invitation.received",
+            user_room_name(invitee.public_id),
+            GroupInvitationSerializer(invitation).data,
+        )
+        return invitation
     except IntegrityError as exc:
         raise GroupServiceError(
             "CONFLICT",
             "برای این کاربر قبلاً دعوت‌نامه فعال ارسال شده است.",
             409,
         ) from exc
+
+
+def list_public_groups(query=None, requester=None):
+    qs = Group.objects.active().filter(is_private=False)
+    if query:
+        qs = qs.filter(name__icontains=query.strip())
+    if requester and requester.is_authenticated:
+        qs = qs.exclude(memberships__user=requester)
+    return (
+        qs.select_related("creator")
+        .prefetch_related("memberships__user")
+        .distinct()
+    )
 
 
 def list_received_invitations(user):

@@ -1,3 +1,4 @@
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
@@ -25,6 +26,17 @@ def _handle_service_error(exc):
     return error_response(exc.code, exc.message, exc.status_code)
 
 
+@extend_schema(
+    tags=["Messages"],
+    summary="Send a message",
+    description="Sends a direct message, group message, or channel message. Supports attachments, reply_to, and stickers.",
+    request=SendMessageSerializer,
+    responses={
+        201: MessageSerializer,
+        400: OpenApiResponse(description="Validation error."),
+        403: OpenApiResponse(description="Forbidden."),
+    },
+)
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def messages(request):
@@ -32,7 +44,7 @@ def messages(request):
     if not serializer.is_valid():
         return error_response(
             "VALIDATION_ERROR",
-            "اطلاعات ارسالی نامعتبر است.",
+            "Invalid request data.",
             status.HTTP_400_BAD_REQUEST,
             serializer.errors,
         )
@@ -43,6 +55,16 @@ def messages(request):
     return success_response(MessageSerializer(message).data, status.HTTP_201_CREATED)
 
 
+@extend_schema(
+    tags=["Messages"],
+    summary="List direct messages",
+    description="Retrieves message history of direct conversation with a specific user.",
+    parameters=[
+        OpenApiParameter(name="limit", description="Number of messages to retrieve", required=False, type=int),
+        OpenApiParameter(name="before", description="Cursor timestamp or message ID for pagination", required=False, type=str),
+    ],
+    responses={200: MessageSerializer(many=True)},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def direct_messages(request, user_id):
@@ -60,6 +82,16 @@ def direct_messages(request, user_id):
     )
 
 
+@extend_schema(
+    tags=["Messages"],
+    summary="List group messages",
+    description="Retrieves message history of a group conversation.",
+    parameters=[
+        OpenApiParameter(name="limit", description="Number of messages to retrieve", required=False, type=int),
+        OpenApiParameter(name="before", description="Cursor for pagination", required=False, type=str),
+    ],
+    responses={200: MessageSerializer(many=True)},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def group_messages(request, group_id):
@@ -72,6 +104,17 @@ def group_messages(request, group_id):
     )
 
 
+@extend_schema(
+    tags=["Messages"],
+    summary="List channel messages",
+    description="Retrieves message history in a channel or specific channel topic.",
+    parameters=[
+        OpenApiParameter(name="limit", description="Number of messages to retrieve", required=False, type=int),
+        OpenApiParameter(name="before", description="Cursor for pagination", required=False, type=str),
+        OpenApiParameter(name="topic_id", description="Filter messages by topic ID", required=False, type=str),
+    ],
+    responses={200: MessageSerializer(many=True)},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def channel_messages(request, channel_id):
@@ -111,19 +154,44 @@ def channel_messages(request, channel_id):
     )
 
 
+@extend_schema(
+    tags=["Messages"],
+    summary="Search user messages",
+    description="Searches all accessible messages for a search query string `q`.",
+    parameters=[
+        OpenApiParameter(name="q", description="Query string to search", required=True, type=str),
+        OpenApiParameter(name="limit", description="Limit of search results", required=False, type=int),
+    ],
+    responses={200: MessageSerializer(many=True), 400: OpenApiResponse(description="Query parameter 'q' is required.")},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def search_message_list(request):
     query = request.query_params.get("q", "").strip()
     limit = request.query_params.get("limit", 20)
     if not query:
-        return error_response("VALIDATION_ERROR", "پارامتر q الزامی است.", status.HTTP_400_BAD_REQUEST)
+        return error_response("VALIDATION_ERROR", "Parameter q is required.", status.HTTP_400_BAD_REQUEST)
 
     messages_list, has_more, meta = search_messages(request.user, query, limit)
     meta["has_more"] = has_more
     return success_response(MessageSerializer(messages_list, many=True).data, meta=meta)
 
 
+@extend_schema(
+    tags=["Messages"],
+    summary="Global search messages",
+    description="Global search across all conversations with advanced filters (message_type, from_user, date_from, date_to).",
+    parameters=[
+        OpenApiParameter(name="q", description="Search query string", required=False, type=str),
+        OpenApiParameter(name="message_type", description="Filter by direct, group, or channel", required=False, type=str),
+        OpenApiParameter(name="from_user", description="Filter by sender user public ID", required=False, type=str),
+        OpenApiParameter(name="date_from", description="Filter starting date (YYYY-MM-DD)", required=False, type=str),
+        OpenApiParameter(name="date_to", description="Filter ending date (YYYY-MM-DD)", required=False, type=str),
+        OpenApiParameter(name="limit", description="Result limit", required=False, type=int),
+        OpenApiParameter(name="before", description="Cursor for pagination", required=False, type=str),
+    ],
+    responses={200: MessageSerializer(many=True)},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def global_search_view(request):
@@ -152,6 +220,28 @@ def global_search_view(request):
     return success_response(MessageSerializer(messages_list, many=True).data, meta=meta)
 
 
+@extend_schema(
+    tags=["Messages"],
+    summary="Get, edit, or delete message",
+    description="GET: Retrieves a single message.\nPATCH: Edits message content.\nDELETE: Soft-deletes a message.",
+    methods=["GET"],
+    responses={200: MessageSerializer, 404: OpenApiResponse(description="Message not found.")},
+)
+@extend_schema(
+    tags=["Messages"],
+    summary="Edit message content",
+    description="Edits text content of a message sent by current user.",
+    methods=["PATCH"],
+    request=EditMessageSerializer,
+    responses={200: MessageSerializer, 400: OpenApiResponse(description="Validation error."), 403: OpenApiResponse(description="Forbidden.")},
+)
+@extend_schema(
+    tags=["Messages"],
+    summary="Delete message",
+    description="Deletes a message.",
+    methods=["DELETE"],
+    responses={204: OpenApiResponse(description="Message deleted successfully."), 403: OpenApiResponse(description="Forbidden.")},
+)
 @api_view(["GET", "PATCH", "DELETE"])
 @permission_classes([IsAuthenticated])
 def message_detail(request, message_id):
@@ -171,7 +261,7 @@ def message_detail(request, message_id):
         if not serializer.is_valid():
             return error_response(
                 "VALIDATION_ERROR",
-                "اطلاعات ارسالی نامعتبر است.",
+                "Invalid request data.",
                 status.HTTP_400_BAD_REQUEST,
                 serializer.errors,
             )
@@ -188,6 +278,17 @@ def message_detail(request, message_id):
     return no_content_response()
 
 
+@extend_schema(
+    tags=["Messages"],
+    summary="Search direct messages",
+    description="Searches text inside direct messages exchanged with a specific user.",
+    parameters=[
+        OpenApiParameter(name="q", description="Query string", required=False, type=str),
+        OpenApiParameter(name="limit", description="Limit", required=False, type=int),
+        OpenApiParameter(name="before", description="Cursor", required=False, type=str),
+    ],
+    responses={200: MessageSerializer(many=True)},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def search_direct_messages_view(request, user_id):
@@ -205,6 +306,17 @@ def search_direct_messages_view(request, user_id):
     )
 
 
+@extend_schema(
+    tags=["Messages"],
+    summary="Search group messages",
+    description="Searches text inside group messages.",
+    parameters=[
+        OpenApiParameter(name="q", description="Query string", required=False, type=str),
+        OpenApiParameter(name="limit", description="Limit", required=False, type=int),
+        OpenApiParameter(name="before", description="Cursor", required=False, type=str),
+    ],
+    responses={200: MessageSerializer(many=True)},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def search_group_messages_view(request, group_id):
@@ -222,6 +334,18 @@ def search_group_messages_view(request, group_id):
     )
 
 
+@extend_schema(
+    tags=["Messages"],
+    summary="Search channel messages",
+    description="Searches text inside channel messages or specific topic.",
+    parameters=[
+        OpenApiParameter(name="q", description="Query string", required=False, type=str),
+        OpenApiParameter(name="limit", description="Limit", required=False, type=int),
+        OpenApiParameter(name="before", description="Cursor", required=False, type=str),
+        OpenApiParameter(name="topic_id", description="Topic ID", required=False, type=str),
+    ],
+    responses={200: MessageSerializer(many=True)},
+)
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def search_channel_messages_view(request, channel_id):

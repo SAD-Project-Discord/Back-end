@@ -9,6 +9,7 @@ from api.models import (
     Group,
     GroupInvitation,
     GroupMembership,
+    InviteLink,
     Message,
     MessageReaction,
     ScheduledMessage,
@@ -16,6 +17,7 @@ from api.models import (
     StickerPack,
     Topic,
     User,
+    UserContact,
     UserPrivacySetting,
     MediaAttachment,
 )
@@ -47,12 +49,12 @@ class RegisterSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError("کاربری با این ایمیل قبلاً ثبت‌نام کرده است.")
+            raise serializers.ValidationError("A user with this email address already exists.")
         return value
 
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError("این نام کاربری قبلاً استفاده شده است.")
+            raise serializers.ValidationError("This username is already taken.")
         return value
 
     def create(self, validated_data):
@@ -65,7 +67,15 @@ class LoginSerializer(serializers.Serializer):
 
 
 class RefreshTokenSerializer(serializers.Serializer):
-    refresh_token = serializers.CharField()
+    refresh_token = serializers.CharField(required=False)
+    refresh = serializers.CharField(required=False)
+
+    def validate(self, attrs):
+        token = attrs.get("refresh_token") or attrs.get("refresh")
+        if not token:
+            raise serializers.ValidationError("Either refresh_token or refresh field must be provided.")
+        attrs["refresh_token"] = token
+        return attrs
 
 
 class AuthSessionSerializer(serializers.ModelSerializer):
@@ -299,6 +309,7 @@ class PublicUserProfileSerializer(serializers.ModelSerializer):
         source="profile_picture",
         read_only=True,
     )
+    is_contact = serializers.SerializerMethodField()
 
     class Meta:
         model = User
@@ -308,9 +319,20 @@ class PublicUserProfileSerializer(serializers.ModelSerializer):
             "name",
             "bio",
             "avatar_url",
+            "is_contact",
             "created_at",
             "updated_at",
         ]
+
+    def get_is_contact(self, obj):
+        request = self.context.get("request")
+        if not request or not hasattr(request, "user") or not request.user or not request.user.is_authenticated:
+            return False
+        if hasattr(obj, "is_contact_override"):
+            return bool(obj.is_contact_override)
+        if hasattr(request, "_saved_contact_ids"):
+            return obj.id in request._saved_contact_ids
+        return UserContact.objects.filter(owner=request.user, contact=obj).exists()
 
 
 class UpdateUserProfileSerializer(serializers.ModelSerializer):
@@ -318,6 +340,13 @@ class UpdateUserProfileSerializer(serializers.ModelSerializer):
         source="profile_picture",
         required=False,
         allow_blank=True,
+    )
+    group_add_permission = serializers.ChoiceField(
+        choices=UserPrivacySetting.GroupAddPermission.choices,
+        required=False,
+    )
+    allow_direct_add = serializers.BooleanField(
+        required=False,
     )
 
     class Meta:
@@ -327,6 +356,8 @@ class UpdateUserProfileSerializer(serializers.ModelSerializer):
             "name",
             "bio",
             "avatar_url",
+            "group_add_permission",
+            "allow_direct_add",
         ]
         extra_kwargs = {
             "username": {"required": False},
@@ -345,7 +376,7 @@ class UpdateUserProfileSerializer(serializers.ModelSerializer):
 
         if users.exists():
             raise serializers.ValidationError(
-                "این نام کاربری قبلاً استفاده شده است."
+                "This username is already taken."
             )
 
         return value
@@ -360,6 +391,15 @@ class CreateGroupSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         default="",
+    )
+    is_private = serializers.BooleanField(
+        required=False,
+        default=True,
+    )
+    member_ids = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
     )
 
 
@@ -418,7 +458,10 @@ class GroupSerializer(serializers.ModelSerializer):
         many=True,
         read_only=True,
     )
-    member_count = serializers.SerializerMethodField()
+    member_count = serializers.IntegerField(
+        source="memberships.count",
+        read_only=True,
+    )
 
     class Meta:
         model = Group
@@ -426,6 +469,7 @@ class GroupSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            "is_private",
             "creator_id",
             "member_count",
             "members",
@@ -520,6 +564,10 @@ class CreateChannelSerializer(serializers.Serializer):
         default="",
         trim_whitespace=True,
     )
+    is_private = serializers.BooleanField(
+        required=False,
+        default=True,
+    )
 
 
 class UpdateChannelSerializer(serializers.Serializer):
@@ -533,11 +581,14 @@ class UpdateChannelSerializer(serializers.Serializer):
         allow_blank=True,
         trim_whitespace=True,
     )
+    is_private = serializers.BooleanField(
+        required=False,
+    )
 
     def validate(self, attrs):
         if not attrs:
             raise serializers.ValidationError(
-                "حداقل یکی از فیلدهای name یا description الزامی است."
+                "At least one field (name, description, is_private) must be provided."
             )
 
         return attrs
@@ -560,6 +611,7 @@ class ChannelSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "description",
+            "is_private",
             "creator_id",
             "topic_count",
             "created_at",
@@ -568,8 +620,34 @@ class ChannelSerializer(serializers.ModelSerializer):
 
     def get_topic_count(self, obj):
         return obj.topics.filter(
-            deleted_at__isnull=True,
+            deleted_at__isnull=True
         ).count()
+
+
+class InviteLinkSerializer(serializers.ModelSerializer):
+    token = serializers.CharField(source="public_id", read_only=True)
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InviteLink
+        fields = ["token", "url", "created_at", "expires_at"]
+
+    def get_url(self, obj):
+        request = self.context.get("request")
+        path = f"/invite/{obj.public_id}"
+        if request:
+            return request.build_absolute_uri(path)
+        return path
+
+
+class InviteLinkPreviewSerializer(serializers.Serializer):
+    token = serializers.CharField()
+    target_type = serializers.CharField()
+    target_id = serializers.CharField()
+    target_name = serializers.CharField()
+    target_description = serializers.CharField()
+    member_count = serializers.IntegerField()
+    is_member = serializers.BooleanField()
 
 
 class CreateTopicSerializer(serializers.Serializer):
@@ -758,6 +836,16 @@ class ChannelMembershipSerializer(
         ]
 
 
+class AddGroupMemberSerializer(serializers.Serializer):
+    user_id = serializers.CharField(required=False)
+    username = serializers.CharField(required=False)
+
+    def validate(self, attrs):
+        if not attrs.get("user_id") and not attrs.get("username"):
+            raise serializers.ValidationError("Either user_id or username must be provided.")
+        return attrs
+
+
 class AddChannelMemberSerializer(
     serializers.Serializer
 ):
@@ -789,10 +877,12 @@ class UserPrivacySettingSerializer(serializers.ModelSerializer):
 
 class StickerSerializer(serializers.ModelSerializer):
     id = serializers.CharField(source="public_id", read_only=True)
+    url = serializers.CharField(source="image_url", read_only=True)
+    name = serializers.CharField(source="emoji_alias", read_only=True)
 
     class Meta:
         model = Sticker
-        fields = ["id", "emoji_alias", "image_url", "created_at"]
+        fields = ["id", "url", "name", "emoji_alias", "image_url", "created_at"]
 
 
 class StickerPackSerializer(serializers.ModelSerializer):
@@ -812,3 +902,7 @@ class MessageReactionSerializer(serializers.ModelSerializer):
     class Meta:
         model = MessageReaction
         fields = ["id", "user_id", "emoji", "sticker_id", "created_at"]
+
+
+class FileUploadSerializer(serializers.Serializer):
+    file = serializers.FileField(help_text="File object to upload (image, audio, video, document)")
