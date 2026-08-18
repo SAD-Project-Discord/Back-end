@@ -4943,3 +4943,328 @@ class GroupMessageDeletionTests(APITestCase):
         self.assertIsNone(
             owner_message.deleted_at
         )
+
+
+class DirectConversationListTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email="conversation-user@example.com",
+            username="conversation_user",
+            name="Conversation User",
+            password="StrongPassword123",
+        )
+
+        self.user_a = User.objects.create_user(
+            email="conversation-a@example.com",
+            username="conversation_a",
+            name="Conversation A",
+            password="StrongPassword123",
+        )
+
+        self.user_b = User.objects.create_user(
+            email="conversation-b@example.com",
+            username="conversation_b",
+            name="Conversation B",
+            password="StrongPassword123",
+        )
+
+        self.outsider_a = User.objects.create_user(
+            email="conversation-outsider-a@example.com",
+            username="conversation_outsider_a",
+            name="Outsider A",
+            password="StrongPassword123",
+        )
+
+        self.outsider_b = User.objects.create_user(
+            email="conversation-outsider-b@example.com",
+            username="conversation_outsider_b",
+            name="Outsider B",
+            password="StrongPassword123",
+        )
+
+        self.url = reverse(
+            "messages-direct-conversations"
+        )
+
+        self.client.force_authenticate(
+            user=self.user
+        )
+
+    def create_dm(
+        self,
+        sender,
+        receiver,
+        content,
+    ):
+        return Message.objects.create(
+            user=sender,
+            receiver=receiver,
+            message_type=Message.MessageType.DIRECT,
+            content=content,
+        )
+
+    def test_conversation_is_deduplicated_by_participant(self):
+        self.create_dm(
+            self.user,
+            self.user_a,
+            "First message",
+        )
+        latest = self.create_dm(
+            self.user_a,
+            self.user,
+            "Latest message",
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            len(response.data["data"]),
+            1,
+        )
+
+        conversation = response.data["data"][0]
+
+        self.assertEqual(
+            conversation["user"]["id"],
+            self.user_a.public_id,
+        )
+        self.assertEqual(
+            conversation["last_message"]["id"],
+            latest.public_id,
+        )
+        self.assertEqual(
+            conversation["last_message"]["content"],
+            "Latest message",
+        )
+
+    def test_conversations_are_ordered_by_latest_message(self):
+        self.create_dm(
+            self.user,
+            self.user_a,
+            "Conversation A",
+        )
+        self.create_dm(
+            self.user,
+            self.user_b,
+            "Conversation B",
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        user_ids = [
+            item["user"]["id"]
+            for item in response.data["data"]
+        ]
+
+        self.assertEqual(
+            user_ids,
+            [
+                self.user_b.public_id,
+                self.user_a.public_id,
+            ],
+        )
+
+    def test_unrelated_direct_messages_are_not_returned(self):
+        self.create_dm(
+            self.outsider_a,
+            self.outsider_b,
+            "Private outsider conversation",
+        )
+
+        self.create_dm(
+            self.user,
+            self.user_a,
+            "Visible conversation",
+        )
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            len(response.data["data"]),
+            1,
+        )
+        self.assertEqual(
+            response.data["data"][0]["user"]["id"],
+            self.user_a.public_id,
+        )
+
+    def test_soft_deleted_latest_message_is_ignored(self):
+        active_message = self.create_dm(
+            self.user,
+            self.user_a,
+            "Visible message",
+        )
+
+        deleted_message = self.create_dm(
+            self.user_a,
+            self.user,
+            "Deleted latest message",
+        )
+        deleted_message.soft_delete()
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_200_OK,
+        )
+
+        self.assertEqual(
+            response.data["data"][0][
+                "last_message"
+            ]["id"],
+            active_message.public_id,
+        )
+
+    def test_response_matches_conversation_contract(self):
+        message = self.create_dm(
+            self.user,
+            self.user_a,
+            "Contract message",
+        )
+
+        response = self.client.get(self.url)
+
+        conversation = response.data["data"][0]
+
+        self.assertEqual(
+            set(conversation.keys()),
+            {"user", "last_message"},
+        )
+
+        self.assertEqual(
+            set(conversation["user"].keys()),
+            {
+                "id",
+                "username",
+                "name",
+                "avatar_url",
+            },
+        )
+
+        self.assertEqual(
+            set(conversation["last_message"].keys()),
+            {
+                "id",
+                "content",
+                "created_at",
+                "sender_id",
+                "receiver_id",
+            },
+        )
+
+        self.assertEqual(
+            conversation["last_message"]["id"],
+            message.public_id,
+        )
+        self.assertEqual(
+            conversation["last_message"]["sender_id"],
+            self.user.public_id,
+        )
+        self.assertEqual(
+            conversation["last_message"]["receiver_id"],
+            self.user_a.public_id,
+        )
+
+    def test_conversations_support_cursor_pagination(self):
+        self.create_dm(
+            self.user,
+            self.user_a,
+            "Conversation A",
+        )
+        self.create_dm(
+            self.user,
+            self.user_b,
+            "Conversation B",
+        )
+
+        first_response = self.client.get(
+            self.url,
+            {
+                "limit": 1,
+            },
+        )
+
+        self.assertEqual(
+            first_response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            len(first_response.data["data"]),
+            1,
+        )
+        self.assertTrue(
+            first_response.data["meta"]["has_more"]
+        )
+
+        cursor = first_response.data["meta"][
+            "next_cursor"
+        ]
+
+        self.assertIsNotNone(cursor)
+
+        second_response = self.client.get(
+            self.url,
+            {
+                "limit": 1,
+                "cursor": cursor,
+            },
+        )
+
+        self.assertEqual(
+            second_response.status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            len(second_response.data["data"]),
+            1,
+        )
+
+        first_user_id = (
+            first_response.data["data"][0]
+            ["user"]["id"]
+        )
+        second_user_id = (
+            second_response.data["data"][0]
+            ["user"]["id"]
+        )
+
+        self.assertNotEqual(
+            first_user_id,
+            second_user_id,
+        )
+
+        self.assertFalse(
+            second_response.data["meta"]["has_more"]
+        )
+        self.assertIsNone(
+            second_response.data["meta"][
+                "next_cursor"
+            ]
+        )
+
+    def test_invalid_cursor_is_rejected(self):
+        response = self.client.get(
+            self.url,
+            {
+                "cursor": "not-a-valid-cursor",
+            },
+        )
+
+        self.assertEqual(
+            response.status_code,
+            status.HTTP_400_BAD_REQUEST,
+        )
